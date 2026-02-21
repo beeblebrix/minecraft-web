@@ -1,0 +1,169 @@
+:root {
+  font-family: 'Trebuchet MS', Verdana, sans-serif;
+  color: #f6f4e9;
+  background: #8fc9ff;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #b8ddff 0%, #8fc9ff 50%, #76afe4 100%);
+}
+
+#app,
+canvas {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+
+.hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  max-width: min(90vw, 680px);
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 1.35;
+  color: #fefce7;
+  border: 1px solid #ffffff40;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2a2a2bcc, #1d1d1ecc);
+  backdrop-filter: blur(4px);
+}
+
+.overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 12;
+  padding: 12px 18px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: clamp(12px, 2.8vw, 16px);
+  color: #fff8d8;
+  border: 1px solid #ffffff55;
+  border-radius: 10px;
+  background: #1f1f20dd;
+  text-align: center;
+}
+
+.overlay h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.overlay p {
+  margin: 4px 0;
+}
+
+.crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  z-index: 11;
+  pointer-events: none;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: '';
+  position: absolute;
+  background: #fff8d8;
+  box-shadow: 0 0 4px #000000c0;
+}
+
+.crosshair::before {
+  top: 8px;
+  left: 2px;
+  width: 14px;
+  height: 2px;
+}
+
+.crosshair::after {
+  top: 2px;
+  left: 8px;
+  width: 2px;
+  height: 14px;
+}
+
+.hotbar {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid #ffffff40;
+  background: #1d1d1ecc;
+  backdrop-filter: blur(4px);
+}
+
+.slot {
+  min-width: 92px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #ffffff25;
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  align-items: center;
+  column-gap: 8px;
+  color: #fff8d8;
+  background: #2a2a2bcc;
+}
+
+.slot.selected {
+  border-color: #ffe8a7;
+  box-shadow: 0 0 0 1px #ffe8a7aa inset;
+  transform: translateY(-2px);
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #00000066;
+  border-radius: 2px;
+}
+
+.slot .name {
+  font-size: 12px;
+}
+
+.slot .key {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.slot .count {
+  font-size: 12px;
+  min-width: 18px;
+  text-align: right;
+}
+
+@media (max-width: 720px) {
+  .slot {
+    min-width: 72px;
+    padding: 6px;
+  }
+
+  .slot .name {
+    font-size: 11px;
+  }
+}
