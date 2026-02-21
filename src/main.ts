@@ -14,6 +14,7 @@ if (!app) {
 }
 
 app.innerHTML = `
+  <div class="debug-hint" id="debug-hint">F3: Show Debug</div>
   <div class="hud" id="hud"></div>
   <div class="overlay" id="overlay">
     <div class="overlay-panel">
@@ -45,6 +46,7 @@ app.innerHTML = `
 `
 
 const hudNode = document.querySelector<HTMLDivElement>('#hud')
+const debugHintNode = document.querySelector<HTMLDivElement>('#debug-hint')
 const overlayNode = document.querySelector<HTMLDivElement>('#overlay')
 const hotbarNode = document.querySelector<HTMLDivElement>('#hotbar')
 const crosshairNode = document.querySelector<HTMLDivElement>('.crosshair')
@@ -58,6 +60,7 @@ const inventoryGridNode = document.querySelector<HTMLDivElement>('#inventory-gri
 
 if (
   !hudNode ||
+  !debugHintNode ||
   !overlayNode ||
   !hotbarNode ||
   !crosshairNode ||
@@ -73,6 +76,7 @@ if (
 }
 
 const hud = hudNode
+const debugHint = debugHintNode
 const overlay = overlayNode
 const hotbar = hotbarNode
 const crosshair = crosshairNode
@@ -107,6 +111,7 @@ const PLAYER_HURT_COOLDOWN = 0.75
 const PLAYER_RESPAWN_SECONDS = 2.5
 
 let selectedSlotIndex = 0
+let debugHudVisible = false
 let inventoryOpen = false
 let draggedSource: { kind: 'inventory'; block: BlockId } | { kind: 'craft'; index: number; block: BlockId } | null =
   null
@@ -484,6 +489,8 @@ craftButton.addEventListener('click', () => {
   soundSystem.playBlockPlace()
 })
 
+hud.style.display = 'none'
+
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
@@ -630,6 +637,14 @@ overlay.addEventListener('click', (event) => {
 })
 
 window.addEventListener('keydown', (event) => {
+  if (event.code === 'F3') {
+    event.preventDefault()
+    debugHudVisible = !debugHudVisible
+    hud.style.display = debugHudVisible ? 'block' : 'none'
+    debugHint.textContent = debugHudVisible ? 'F3: Hide Debug' : 'F3: Show Debug'
+    return
+  }
+
   if (event.code === 'KeyE' && !playerDead) {
     event.preventDefault()
 
