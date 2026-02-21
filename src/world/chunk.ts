@@ -1,11 +1,15 @@
 export const CHUNK_SIZE = 16
 export const CHUNK_HEIGHT = 32
+export const SEA_LEVEL = 7
 
 export const BlockId = {
   Air: 0,
   Grass: 1,
   Dirt: 2,
   Stone: 3,
+  Wood: 4,
+  Leaves: 5,
+  Water: 6,
 } as const
 
 export type BlockId = (typeof BlockId)[keyof typeof BlockId]

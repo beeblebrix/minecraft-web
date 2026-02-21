@@ -4,10 +4,11 @@ import {
   CHUNK_HEIGHT,
   CHUNK_SIZE,
   ChunkData,
+  SEA_LEVEL,
   type GenerateChunkRequest,
   type GenerateChunkResponse,
 } from './chunk'
-import { getHeightAt as terrainHeightAt, isSolidAt as terrainSolidAt } from './terrainMath'
+import { getHeightAt as terrainHeightAt, getTopBlockAt as terrainTopBlockAt } from './terrainMath'
 import { raycastVoxel } from './voxelRaycast'
 
 type ChunkRecord = {
@@ -16,6 +17,9 @@ type ChunkRecord = {
 }
 
 const MAX_CHUNK_REQUESTS_PER_UPDATE = 8
+const DIRT_GREEN_MIN_DELAY_MS = 30000
+const DIRT_GREEN_MAX_DELAY_MS = 90000
+const MAX_GRASS_GROWTH_REBUILDS_PER_UPDATE = 4
 
 type ChunkManagerOptions = {
   savedChunks?: Map<string, ArrayBuffer>
@@ -31,6 +35,9 @@ export class ChunkManager {
   private readonly worker: Worker
   private readonly savedChunks: Map<string, ArrayBuffer>
   private readonly onChunkChanged?: (chunkX: number, chunkZ: number, blocks: ArrayBuffer) => void | Promise<void>
+  private readonly dirtGreenReadyAt = new Map<string, number>()
+  private readonly dirtGreenGrown = new Set<string>()
+  private readonly growthDirtyChunkKeys = new Set<string>()
   private targetChunkKeys = new Set<string>()
 
   private currentChunkX = Number.NaN
@@ -48,52 +55,53 @@ export class ChunkManager {
     const chunkX = Math.floor(playerPosition.x / CHUNK_SIZE)
     const chunkZ = Math.floor(playerPosition.z / CHUNK_SIZE)
 
-    if (chunkX === this.currentChunkX && chunkZ === this.currentChunkZ) {
-      return
-    }
+    if (chunkX !== this.currentChunkX || chunkZ !== this.currentChunkZ) {
+      this.currentChunkX = chunkX
+      this.currentChunkZ = chunkZ
 
-    this.currentChunkX = chunkX
-    this.currentChunkZ = chunkZ
+      const neededKeys = new Set<string>()
+      const missingChunks: Array<{ x: number; z: number; key: string; distanceSq: number }> = []
 
-    const neededKeys = new Set<string>()
-    const missingChunks: Array<{ x: number; z: number; key: string; distanceSq: number }> = []
+      for (let dz = -this.viewDistanceInChunks; dz <= this.viewDistanceInChunks; dz += 1) {
+        for (let dx = -this.viewDistanceInChunks; dx <= this.viewDistanceInChunks; dx += 1) {
+          const nextX = chunkX + dx
+          const nextZ = chunkZ + dz
+          const key = toChunkKey(nextX, nextZ)
+          neededKeys.add(key)
 
-    for (let dz = -this.viewDistanceInChunks; dz <= this.viewDistanceInChunks; dz += 1) {
-      for (let dx = -this.viewDistanceInChunks; dx <= this.viewDistanceInChunks; dx += 1) {
-        const nextX = chunkX + dx
-        const nextZ = chunkZ + dz
-        const key = toChunkKey(nextX, nextZ)
-        neededKeys.add(key)
-
-        if (!this.chunks.has(key) && !this.requestedChunks.has(key)) {
-          missingChunks.push({
-            x: nextX,
-            z: nextZ,
-            key,
-            distanceSq: dx * dx + dz * dz,
-          })
+          if (!this.chunks.has(key) && !this.requestedChunks.has(key)) {
+            missingChunks.push({
+              x: nextX,
+              z: nextZ,
+              key,
+              distanceSq: dx * dx + dz * dz,
+            })
+          }
         }
       }
-    }
 
-    this.targetChunkKeys = neededKeys
+      this.targetChunkKeys = neededKeys
 
-    missingChunks
-      .sort((a, b) => a.distanceSq - b.distanceSq)
-      .slice(0, MAX_CHUNK_REQUESTS_PER_UPDATE)
-      .forEach((chunk) => {
-        this.requestChunk(chunk.x, chunk.z, chunk.key)
-      })
+      missingChunks
+        .sort((a, b) => a.distanceSq - b.distanceSq)
+        .slice(0, MAX_CHUNK_REQUESTS_PER_UPDATE)
+        .forEach((chunk) => {
+          this.requestChunk(chunk.x, chunk.z, chunk.key)
+        })
 
-    for (const [key, record] of this.chunks.entries()) {
-      if (neededKeys.has(key)) {
-        continue
+      for (const [key, record] of this.chunks.entries()) {
+        if (neededKeys.has(key)) {
+          continue
+        }
+
+        this.root.remove(record.object)
+        disposeObject(record.object)
+        this.chunks.delete(key)
+        this.clearDirtGrassTrackingForChunkKey(key)
       }
-
-      this.root.remove(record.object)
-      disposeObject(record.object)
-      this.chunks.delete(key)
     }
+
+    this.processGrassGrowth(Date.now())
   }
 
   getSurfaceHeight(worldX: number, worldZ: number): number {
@@ -114,27 +122,12 @@ export class ChunkManager {
   }
 
   isSolidBlock(worldX: number, y: number, worldZ: number): boolean {
-    const chunkX = Math.floor(worldX / CHUNK_SIZE)
-    const chunkZ = Math.floor(worldZ / CHUNK_SIZE)
-    const key = toChunkKey(chunkX, chunkZ)
-    const record = this.chunks.get(key)
+    const block = this.getBlockAtWorld(worldX, y, worldZ)
+    return block !== BlockId.Air && block !== BlockId.Water
+  }
 
-    if (!record) {
-      return terrainSolidAt(worldX, y, worldZ)
-    }
-
-    if (y < 0) {
-      return true
-    }
-
-    if (y >= CHUNK_HEIGHT) {
-      return false
-    }
-
-    const localX = worldX - chunkX * CHUNK_SIZE
-    const localZ = worldZ - chunkZ * CHUNK_SIZE
-
-    return record.data.get(localX, y, localZ) !== BlockId.Air
+  isWaterBlock(worldX: number, y: number, worldZ: number): boolean {
+    return this.getBlockAtWorld(worldX, y, worldZ) === BlockId.Water
   }
 
   raycastBlock(
@@ -157,7 +150,7 @@ export class ChunkManager {
   breakBlock(worldX: number, y: number, worldZ: number): BlockId | null {
     const current = this.getLoadedBlock(worldX, y, worldZ)
 
-    if (current === null || current === BlockId.Air) {
+    if (current === null || current === BlockId.Air || current === BlockId.Water) {
       return null
     }
 
@@ -167,7 +160,7 @@ export class ChunkManager {
 
   placeBlock(worldX: number, y: number, worldZ: number, block: BlockId): boolean {
     const current = this.getLoadedBlock(worldX, y, worldZ)
-    if (current === null || current !== BlockId.Air) {
+    if (current === null || (current !== BlockId.Air && current !== BlockId.Water)) {
       return false
     }
 
@@ -193,12 +186,18 @@ export class ChunkManager {
     this.chunks.clear()
     this.requestedChunks.clear()
     this.targetChunkKeys.clear()
+    this.dirtGreenReadyAt.clear()
+    this.dirtGreenGrown.clear()
+    this.growthDirtyChunkKeys.clear()
   }
 
   private buildChunkMesh(data: ChunkData): THREE.Object3D {
-    let grassCount = 0
     let dirtCount = 0
     let stoneCount = 0
+    let woodCount = 0
+    let leavesCount = 0
+    let waterCount = 0
+    let dirtTopCapCount = 0
 
     for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
       for (let z = 0; z < CHUNK_SIZE; z += 1) {
@@ -210,33 +209,58 @@ export class ChunkManager {
 
           const worldX = data.chunkX * CHUNK_SIZE + x
           const worldZ = data.chunkZ * CHUNK_SIZE + z
+          const exposed = this.isBlockExposed(worldX, y, worldZ, data, block)
+          const topExposed = this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air
 
-          if (this.isBlockExposed(worldX, y, worldZ, data)) {
-            if (block === BlockId.Grass) {
-              grassCount += 1
-            } else if (block === BlockId.Dirt) {
+          this.syncDirtGrassGrowthState(worldX, y, worldZ, block, topExposed)
+
+          if (exposed) {
+            if (block === BlockId.Dirt || block === BlockId.Grass) {
               dirtCount += 1
             } else if (block === BlockId.Stone) {
               stoneCount += 1
+            } else if (block === BlockId.Wood) {
+              woodCount += 1
+            } else if (block === BlockId.Leaves) {
+              leavesCount += 1
+            } else if (block === BlockId.Water) {
+              waterCount += 1
+            }
+
+            if (this.shouldRenderDirtGrassTopCap(worldX, y, worldZ, block, topExposed)) {
+              dirtTopCapCount += 1
             }
           }
         }
       }
     }
 
-    const geometry = new THREE.BoxGeometry(1, 1, 1)
+    const blockGeometry = new THREE.BoxGeometry(1, 1, 1)
+    const topCapGeometry = new THREE.PlaneGeometry(1, 1)
     const chunkGroup = new THREE.Group()
 
-    const grassMesh = createChunkLayerMesh(geometry, 0x64b84c, grassCount)
-    const dirtMesh = createChunkLayerMesh(geometry, 0x7f5936, dirtCount)
-    const stoneMesh = createChunkLayerMesh(geometry, 0x746e67, stoneCount)
+    const dirtMesh = createChunkLayerMesh(blockGeometry, 0x7f5936, dirtCount)
+    const stoneMesh = createChunkLayerMesh(blockGeometry, 0x746e67, stoneCount)
+    const woodMesh = createChunkLayerMesh(blockGeometry, 0x8a623d, woodCount)
+    const leavesMesh = createChunkLayerMesh(blockGeometry, 0x4f9447, leavesCount)
+    const waterMesh = createChunkLayerMesh(blockGeometry, 0x4da8ff, waterCount, {
+      transparent: true,
+      opacity: 0.65,
+    })
+    const dirtTopCapMesh = createChunkLayerMesh(topCapGeometry, 0x64b84c, dirtTopCapCount)
 
-    chunkGroup.add(grassMesh, dirtMesh, stoneMesh)
+    chunkGroup.add(dirtMesh, stoneMesh, woodMesh, leavesMesh, waterMesh, dirtTopCapMesh)
 
     const matrix = new THREE.Matrix4()
-    let grassIndex = 0
+    const capPosition = new THREE.Vector3()
+    const capRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
+    const capScale = new THREE.Vector3(1, 1, 1)
     let dirtIndex = 0
     let stoneIndex = 0
+    let woodIndex = 0
+    let leavesIndex = 0
+    let waterIndex = 0
+    let dirtTopCapIndex = 0
 
     for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
       for (let z = 0; z < CHUNK_SIZE; z += 1) {
@@ -248,36 +272,194 @@ export class ChunkManager {
 
           const worldX = data.chunkX * CHUNK_SIZE + x
           const worldZ = data.chunkZ * CHUNK_SIZE + z
+          const exposed = this.isBlockExposed(worldX, y, worldZ, data, block)
+          const topExposed = this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air
 
-          if (!this.isBlockExposed(worldX, y, worldZ, data)) {
+          if (!exposed) {
             continue
           }
 
           matrix.makeTranslation(worldX + 0.5, y + 0.5, worldZ + 0.5)
 
-          if (block === BlockId.Grass) {
-            grassMesh.setMatrixAt(grassIndex, matrix)
-            grassIndex += 1
-          } else if (block === BlockId.Dirt) {
+          if (block === BlockId.Dirt || block === BlockId.Grass) {
             dirtMesh.setMatrixAt(dirtIndex, matrix)
             dirtIndex += 1
           } else if (block === BlockId.Stone) {
             stoneMesh.setMatrixAt(stoneIndex, matrix)
             stoneIndex += 1
+          } else if (block === BlockId.Wood) {
+            woodMesh.setMatrixAt(woodIndex, matrix)
+            woodIndex += 1
+          } else if (block === BlockId.Leaves) {
+            leavesMesh.setMatrixAt(leavesIndex, matrix)
+            leavesIndex += 1
+          } else if (block === BlockId.Water) {
+            waterMesh.setMatrixAt(waterIndex, matrix)
+            waterIndex += 1
+          }
+
+          if (this.shouldRenderDirtGrassTopCap(worldX, y, worldZ, block, topExposed)) {
+            capPosition.set(worldX + 0.5, y + 1.002, worldZ + 0.5)
+            matrix.compose(capPosition, capRotation, capScale)
+            dirtTopCapMesh.setMatrixAt(dirtTopCapIndex, matrix)
+            dirtTopCapIndex += 1
           }
         }
       }
     }
 
-    grassMesh.count = grassIndex
     dirtMesh.count = dirtIndex
     stoneMesh.count = stoneIndex
+    woodMesh.count = woodIndex
+    leavesMesh.count = leavesIndex
+    waterMesh.count = waterIndex
+    dirtTopCapMesh.count = dirtTopCapIndex
 
-    grassMesh.instanceMatrix.needsUpdate = true
     dirtMesh.instanceMatrix.needsUpdate = true
     stoneMesh.instanceMatrix.needsUpdate = true
+    woodMesh.instanceMatrix.needsUpdate = true
+    leavesMesh.instanceMatrix.needsUpdate = true
+    waterMesh.instanceMatrix.needsUpdate = true
+    dirtTopCapMesh.instanceMatrix.needsUpdate = true
 
     return chunkGroup
+  }
+
+  private shouldRenderDirtGrassTopCap(
+    worldX: number,
+    y: number,
+    worldZ: number,
+    block: BlockId,
+    exposed: boolean,
+  ): boolean {
+    if (!exposed) {
+      return false
+    }
+
+    if (block === BlockId.Grass) {
+      return true
+    }
+
+    if (block !== BlockId.Dirt) {
+      return false
+    }
+
+    return this.dirtGreenGrown.has(toBlockKey(worldX, y, worldZ))
+  }
+
+  private syncDirtGrassGrowthState(
+    worldX: number,
+    y: number,
+    worldZ: number,
+    block: BlockId,
+    exposed: boolean,
+  ): void {
+    const key = toBlockKey(worldX, y, worldZ)
+
+    if (block !== BlockId.Dirt || !exposed) {
+      this.dirtGreenReadyAt.delete(key)
+      this.dirtGreenGrown.delete(key)
+      return
+    }
+
+    if (this.dirtGreenGrown.has(key) || this.dirtGreenReadyAt.has(key)) {
+      return
+    }
+
+    const isNaturalSurface = y === getHeightAt(worldX, worldZ)
+    if (isNaturalSurface) {
+      this.dirtGreenGrown.add(key)
+      return
+    }
+
+    const delay = DIRT_GREEN_MIN_DELAY_MS + Math.random() * (DIRT_GREEN_MAX_DELAY_MS - DIRT_GREEN_MIN_DELAY_MS)
+    this.dirtGreenReadyAt.set(key, Date.now() + delay)
+  }
+
+  private clearDirtGrassTrackingAt(worldX: number, y: number, worldZ: number): void {
+    const key = toBlockKey(worldX, y, worldZ)
+    this.dirtGreenReadyAt.delete(key)
+    this.dirtGreenGrown.delete(key)
+  }
+
+  private clearDirtGrassTrackingForChunkKey(chunkKey: string): void {
+    const [chunkXRaw, chunkZRaw] = chunkKey.split(':')
+    const chunkX = Number(chunkXRaw)
+    const chunkZ = Number(chunkZRaw)
+
+    if (!Number.isInteger(chunkX) || !Number.isInteger(chunkZ)) {
+      return
+    }
+
+    for (const key of this.dirtGreenReadyAt.keys()) {
+      const position = parseBlockKey(key)
+      if (!position) {
+        continue
+      }
+
+      if (Math.floor(position.x / CHUNK_SIZE) === chunkX && Math.floor(position.z / CHUNK_SIZE) === chunkZ) {
+        this.dirtGreenReadyAt.delete(key)
+      }
+    }
+
+    for (const key of this.dirtGreenGrown) {
+      const position = parseBlockKey(key)
+      if (!position) {
+        continue
+      }
+
+      if (Math.floor(position.x / CHUNK_SIZE) === chunkX && Math.floor(position.z / CHUNK_SIZE) === chunkZ) {
+        this.dirtGreenGrown.delete(key)
+      }
+    }
+  }
+
+  private processGrassGrowth(nowMs: number): void {
+    for (const [key, readyAt] of this.dirtGreenReadyAt.entries()) {
+      if (readyAt > nowMs) {
+        continue
+      }
+
+      const position = parseBlockKey(key)
+      if (!position) {
+        this.dirtGreenReadyAt.delete(key)
+        continue
+      }
+
+      const { x, y, z } = position
+      const block = this.getLoadedBlock(x, y, z)
+      const isExposed = this.getBlockAtWorld(x, y + 1, z) === BlockId.Air
+
+      if (block === BlockId.Dirt && isExposed) {
+        this.dirtGreenGrown.add(key)
+        this.growthDirtyChunkKeys.add(toChunkKey(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE)))
+      }
+
+      this.dirtGreenReadyAt.delete(key)
+    }
+
+    let rebuilt = 0
+    for (const chunkKey of this.growthDirtyChunkKeys) {
+      const record = this.chunks.get(chunkKey)
+      if (!record) {
+        this.growthDirtyChunkKeys.delete(chunkKey)
+        continue
+      }
+
+      this.root.remove(record.object)
+      disposeObject(record.object)
+
+      const rebuiltObject = this.buildChunkMesh(record.data)
+      this.root.add(rebuiltObject)
+      record.object = rebuiltObject
+      this.chunks.set(chunkKey, record)
+      this.growthDirtyChunkKeys.delete(chunkKey)
+
+      rebuilt += 1
+      if (rebuilt >= MAX_GRASS_GROWTH_REBUILDS_PER_UPDATE) {
+        break
+      }
+    }
   }
 
   private requestChunk(chunkX: number, chunkZ: number, key: string): void {
@@ -342,6 +524,7 @@ export class ChunkManager {
     }
 
     record.data.set(localX, y, localZ, block)
+    this.clearDirtGrassTrackingAt(worldX, y, worldZ)
     this.persistChunk(chunkX, chunkZ, record.data)
     this.rebuildImpactedChunks(chunkX, chunkZ, localX, localZ)
     return true
@@ -409,7 +592,18 @@ export class ChunkManager {
     }
   }
 
-  private isBlockExposed(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): boolean {
+  private isBlockExposed(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData, block: BlockId): boolean {
+    if (block === BlockId.Water) {
+      return (
+        this.getBlockAtForMeshing(worldX + 1, y, worldZ, sourceChunk) === BlockId.Air ||
+        this.getBlockAtForMeshing(worldX - 1, y, worldZ, sourceChunk) === BlockId.Air ||
+        this.getBlockAtForMeshing(worldX, y + 1, worldZ, sourceChunk) === BlockId.Air ||
+        this.getBlockAtForMeshing(worldX, y - 1, worldZ, sourceChunk) === BlockId.Air ||
+        this.getBlockAtForMeshing(worldX, y, worldZ + 1, sourceChunk) === BlockId.Air ||
+        this.getBlockAtForMeshing(worldX, y, worldZ - 1, sourceChunk) === BlockId.Air
+      )
+    }
+
     return (
       !this.isSolidAtForMeshing(worldX + 1, y, worldZ, sourceChunk) ||
       !this.isSolidAtForMeshing(worldX - 1, y, worldZ, sourceChunk) ||
@@ -420,13 +614,52 @@ export class ChunkManager {
     )
   }
 
-  private isSolidAtForMeshing(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): boolean {
+  private getBlockAtWorld(worldX: number, y: number, worldZ: number): BlockId {
     if (y < 0) {
-      return true
+      return BlockId.Stone
     }
 
     if (y >= CHUNK_HEIGHT) {
-      return false
+      return BlockId.Air
+    }
+
+    const chunkX = Math.floor(worldX / CHUNK_SIZE)
+    const chunkZ = Math.floor(worldZ / CHUNK_SIZE)
+    const record = this.chunks.get(toChunkKey(chunkX, chunkZ))
+
+    if (record) {
+      const localX = worldX - chunkX * CHUNK_SIZE
+      const localZ = worldZ - chunkZ * CHUNK_SIZE
+      return record.data.get(localX, y, localZ)
+    }
+
+    const height = getHeightAt(worldX, worldZ)
+    if (y <= height) {
+      if (y === height) {
+        return terrainTopBlockAt(worldX, worldZ, height)
+      }
+
+      if (y >= height - 3) {
+        return BlockId.Dirt
+      }
+
+      return BlockId.Stone
+    }
+
+    if (y <= SEA_LEVEL) {
+      return BlockId.Water
+    }
+
+    return BlockId.Air
+  }
+
+  private getBlockAtForMeshing(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): BlockId {
+    if (y < 0) {
+      return BlockId.Stone
+    }
+
+    if (y >= CHUNK_HEIGHT) {
+      return BlockId.Air
     }
 
     const chunkX = Math.floor(worldX / CHUNK_SIZE)
@@ -435,26 +668,36 @@ export class ChunkManager {
     if (chunkX === sourceChunk.chunkX && chunkZ === sourceChunk.chunkZ) {
       const localX = worldX - chunkX * CHUNK_SIZE
       const localZ = worldZ - chunkZ * CHUNK_SIZE
-      return sourceChunk.get(localX, y, localZ) !== BlockId.Air
+      return sourceChunk.get(localX, y, localZ)
     }
 
     const neighbor = this.chunks.get(toChunkKey(chunkX, chunkZ))
     if (neighbor) {
       const localX = worldX - chunkX * CHUNK_SIZE
       const localZ = worldZ - chunkZ * CHUNK_SIZE
-      return neighbor.data.get(localX, y, localZ) !== BlockId.Air
+      return neighbor.data.get(localX, y, localZ)
     }
 
-    return terrainSolidAt(worldX, y, worldZ)
+    return this.getBlockAtWorld(worldX, y, worldZ)
+  }
+
+  private isSolidAtForMeshing(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): boolean {
+    const block = this.getBlockAtForMeshing(worldX, y, worldZ, sourceChunk)
+    return block !== BlockId.Air && block !== BlockId.Water
   }
 }
 
 function createChunkLayerMesh(
-  geometry: THREE.BoxGeometry,
+  geometry: THREE.BufferGeometry,
   color: number,
   instanceCount: number,
+  materialOptions: { transparent?: boolean; opacity?: number } = {},
 ): THREE.InstancedMesh {
-  const material = new THREE.MeshLambertMaterial({ color })
+  const material = new THREE.MeshLambertMaterial({
+    color,
+    transparent: materialOptions.transparent,
+    opacity: materialOptions.opacity,
+  })
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(instanceCount, 1))
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
   mesh.castShadow = false
@@ -481,6 +724,23 @@ function disposeObject(object: THREE.Object3D): void {
 
 function toChunkKey(chunkX: number, chunkZ: number): string {
   return `${chunkX}:${chunkZ}`
+}
+
+function toBlockKey(worldX: number, y: number, worldZ: number): string {
+  return `${worldX}:${y}:${worldZ}`
+}
+
+function parseBlockKey(key: string): { x: number; y: number; z: number } | null {
+  const [xRaw, yRaw, zRaw] = key.split(':')
+  const x = Number(xRaw)
+  const y = Number(yRaw)
+  const z = Number(zRaw)
+
+  if (!Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(z)) {
+    return null
+  }
+
+  return { x, y, z }
 }
 
 function getHeightAt(worldX: number, worldZ: number): number {

@@ -32,7 +32,7 @@ export function getTopBlockAt(worldX: number, worldZ: number, height: number): B
     return BlockId.Stone
   }
 
-  return BlockId.Grass
+  return BlockId.Dirt
 }
 
 export function isSolidAt(worldX: number, y: number, worldZ: number): boolean {

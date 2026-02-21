@@ -9,7 +9,7 @@ Browser-based Minecraft-style game built in milestones so each step can be valid
 - Milestone 3 complete: targeting + break/place + selective chunk rebuilds.
 - Milestone 4 complete: edited chunks persist in IndexedDB and reload correctly.
 - Milestone 5 complete: hotbar + selected block UI + pause overlay.
-- Milestone 6 in progress: day/night lighting, fog, and simple mob prototype.
+- Milestone 6 in progress: lighting, mobs, and crafting prototype.
 
 ## Run
 
@@ -59,4 +59,11 @@ Open the local Vite URL and click the canvas to capture the mouse.
 - [x] Add simple mob prototype (wander/chase).
 - [x] Add basic player mob attack interaction.
 - [x] Add core gameplay sound effects.
-- [ ] Add optional crafting or deeper mob combat in later milestone.
+- [x] Add deeper mob combat basics (player i-frames + death/respawn).
+- [x] Add basic inventory crafting UI (press E).
+- [x] Add drag-and-drop inventory to crafting grid.
+- [ ] Expand crafting recipes and advanced combat.
+
+## Open issues
+
+- Pause resume input can be inconsistent: `Esc` does not always re-capture pointer lock, and click-to-resume appears to only work reliably near the pause dialog region on some setups.

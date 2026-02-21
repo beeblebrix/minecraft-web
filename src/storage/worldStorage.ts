@@ -1,12 +1,20 @@
 const DB_NAME = 'minecraft-web-world'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const CHUNK_STORE = 'chunks'
+const PLAYER_STORE = 'player'
+const PLAYER_INVENTORY_KEY = 'inventory'
 
 type ChunkRecord = {
   key: string
   chunkX: number
   chunkZ: number
   blocks: ArrayBuffer
+  updatedAt: number
+}
+
+type PlayerRecord = {
+  key: string
+  value: Record<string, number>
   updatedAt: number
 }
 
@@ -73,6 +81,53 @@ export class WorldStorage {
     })
   }
 
+  async loadInventory(): Promise<Record<string, number> | null> {
+    const db = await this.getDb()
+
+    return new Promise<Record<string, number> | null>((resolve, reject) => {
+      const transaction = db.transaction(PLAYER_STORE, 'readonly')
+      const store = transaction.objectStore(PLAYER_STORE)
+      const request = store.get(PLAYER_INVENTORY_KEY)
+
+      request.onerror = () => {
+        reject(request.error ?? new Error('Failed to load inventory.'))
+      }
+
+      request.onsuccess = () => {
+        const record = request.result as PlayerRecord | undefined
+        resolve(record?.value ?? null)
+      }
+    })
+  }
+
+  async saveInventory(inventory: Record<string, number>): Promise<void> {
+    const db = await this.getDb()
+
+    const record: PlayerRecord = {
+      key: PLAYER_INVENTORY_KEY,
+      value: { ...inventory },
+      updatedAt: Date.now(),
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(PLAYER_STORE, 'readwrite')
+      const store = transaction.objectStore(PLAYER_STORE)
+      const request = store.put(record)
+
+      request.onerror = () => {
+        reject(request.error ?? new Error('Failed to save inventory.'))
+      }
+
+      transaction.oncomplete = () => {
+        resolve()
+      }
+
+      transaction.onerror = () => {
+        reject(transaction.error ?? new Error('Inventory save transaction failed.'))
+      }
+    })
+  }
+
   private async getDb(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
       this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
@@ -82,6 +137,9 @@ export class WorldStorage {
           const db = request.result
           if (!db.objectStoreNames.contains(CHUNK_STORE)) {
             db.createObjectStore(CHUNK_STORE, { keyPath: 'key' })
+          }
+          if (!db.objectStoreNames.contains(PLAYER_STORE)) {
+            db.createObjectStore(PLAYER_STORE, { keyPath: 'key' })
           }
         }
 

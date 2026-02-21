@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 export type WorldCollisionProvider = {
   isSolidBlock: (worldX: number, y: number, worldZ: number) => boolean
+  isWaterBlock: (worldX: number, y: number, worldZ: number) => boolean
 }
 
 const LOOK_SPEED = 0.0025
@@ -8,6 +9,10 @@ const WALK_SPEED = 6
 const SPRINT_SPEED = 10
 const JUMP_FORCE = 8
 const GRAVITY = 22
+const WATER_GRAVITY = 5
+const WATER_SWIM_UP_FORCE = 12
+const WATER_TERMINAL_FALL = 2.2
+const WATER_MOVE_MULTIPLIER = 0.55
 const EYE_HEIGHT = 1.7
 const PLAYER_HEIGHT = 1.8
 const PLAYER_RADIUS = 0.32
@@ -35,6 +40,8 @@ export class FirstPersonController {
   private velocityY = 0
   private grounded = false
   private movingHorizontally = false
+  private inWater = false
+  private fullySubmerged = false
 
   constructor(camera: THREE.PerspectiveCamera, domElement: HTMLElement, world: WorldCollisionProvider) {
     this.camera = camera
@@ -49,6 +56,10 @@ export class FirstPersonController {
     return document.pointerLockElement === this.domElement
   }
 
+  requestPointerLock(): void {
+    this.domElement.requestPointerLock()
+  }
+
   get isGrounded(): boolean {
     return this.grounded
   }
@@ -57,19 +68,38 @@ export class FirstPersonController {
     return this.grounded && this.movingHorizontally
   }
 
+  get isInWater(): boolean {
+    return this.inWater
+  }
+
+  get isFullySubmerged(): boolean {
+    return this.fullySubmerged
+  }
+
   setPosition(x: number, y: number, z: number): void {
     this.position.set(x, y, z)
     this.camera.position.set(x, y + EYE_HEIGHT, z)
   }
 
+  resetMotion(): void {
+    this.velocityY = 0
+    this.grounded = false
+    this.movingHorizontally = false
+    this.inWater = false
+    this.fullySubmerged = false
+  }
+
   update(deltaSeconds: number): void {
     this.grounded = this.checkGrounded()
+    this.inWater = this.checkInWater()
+    this.fullySubmerged = this.checkFullySubmerged()
 
     const moveX = Number(this.keys.right) - Number(this.keys.left)
     const moveZ = Number(this.keys.forward) - Number(this.keys.backward)
     const hasMovementInput = moveX !== 0 || moveZ !== 0
 
-    const speed = this.keys.sprint ? SPRINT_SPEED : WALK_SPEED
+    const speedBase = this.keys.sprint ? SPRINT_SPEED : WALK_SPEED
+    const speed = this.inWater ? speedBase * WATER_MOVE_MULTIPLIER : speedBase
 
     if (hasMovementInput) {
       const inputLength = Math.hypot(moveX, moveZ)
@@ -87,12 +117,21 @@ export class FirstPersonController {
       this.movingHorizontally = false
     }
 
-    if (this.grounded && this.keys.jump) {
+    if (this.inWater && this.keys.jump) {
+      this.velocityY += WATER_SWIM_UP_FORCE * deltaSeconds
+      this.velocityY = Math.min(this.velocityY, JUMP_FORCE)
+    } else if (this.grounded && this.keys.jump) {
       this.velocityY = JUMP_FORCE
       this.grounded = false
     }
 
-    this.velocityY -= GRAVITY * deltaSeconds
+    const gravity = this.inWater ? WATER_GRAVITY : GRAVITY
+    this.velocityY -= gravity * deltaSeconds
+
+    if (this.inWater) {
+      this.velocityY = Math.max(this.velocityY, -WATER_TERMINAL_FALL)
+    }
+
     this.moveVertical(this.velocityY * deltaSeconds)
 
     this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z)
@@ -194,6 +233,45 @@ export class FirstPersonController {
     return this.collidesAt(this.position.x, this.position.y - GROUND_CHECK_EPSILON, this.position.z)
   }
 
+  private checkInWater(): boolean {
+    const minX = Math.floor(this.position.x - PLAYER_RADIUS)
+    const maxX = Math.floor(this.position.x + PLAYER_RADIUS - Number.EPSILON)
+    const minY = Math.floor(this.position.y)
+    const maxY = Math.floor(this.position.y + PLAYER_HEIGHT - Number.EPSILON)
+    const minZ = Math.floor(this.position.z - PLAYER_RADIUS)
+    const maxZ = Math.floor(this.position.z + PLAYER_RADIUS - Number.EPSILON)
+
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let z = minZ; z <= maxZ; z += 1) {
+        for (let x = minX; x <= maxX; x += 1) {
+          if (this.world.isWaterBlock(x, y, z)) {
+            return true
+          }
+        }
+      }
+    }
+
+    return false
+  }
+
+  private checkFullySubmerged(): boolean {
+    const topY = Math.floor(this.position.y + PLAYER_HEIGHT - 0.05)
+    const minX = Math.floor(this.position.x - PLAYER_RADIUS)
+    const maxX = Math.floor(this.position.x + PLAYER_RADIUS - Number.EPSILON)
+    const minZ = Math.floor(this.position.z - PLAYER_RADIUS)
+    const maxZ = Math.floor(this.position.z + PLAYER_RADIUS - Number.EPSILON)
+
+    for (let z = minZ; z <= maxZ; z += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        if (!this.world.isWaterBlock(x, topY, z)) {
+          return false
+        }
+      }
+    }
+
+    return true
+  }
+
   private collidesAt(positionX: number, positionY: number, positionZ: number): boolean {
     const minX = Math.floor(positionX - PLAYER_RADIUS)
     const maxX = Math.floor(positionX + PLAYER_RADIUS - Number.EPSILON)
@@ -233,6 +311,9 @@ export class FirstPersonController {
     })
 
     window.addEventListener('keydown', (event) => {
+      if (!this.isPointerLocked) {
+        return
+      }
       this.updateKeyState(event.code, true)
     })
 
