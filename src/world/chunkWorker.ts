@@ -8,7 +8,7 @@ import {
   type GenerateChunkRequest,
   type GenerateChunkResponse,
 } from './chunk'
-import { getHeightAt, getTopBlockAt } from './terrainMath'
+import { getHeightAt, getSubsurfaceBlockAt, getTopBlockAt, isColdAt } from './terrainMath'
 
 function toIndex(x: number, y: number, z: number): number {
   return x + z * CHUNK_SIZE + y * CHUNK_SIZE * CHUNK_SIZE
@@ -56,7 +56,7 @@ function addTrees(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
       const trunkHeight = 3 + Math.floor(hash2(worldX, worldZ, 41) * 3)
 
       for (let y = 1; y <= trunkHeight; y += 1) {
-        setIfAir(blocks, x, groundY + y, z, BlockId.Wood)
+        setIfAir(blocks, x, groundY + y, z, BlockId.Log)
       }
 
       const canopyY = groundY + trunkHeight
@@ -97,18 +97,18 @@ function generateChunkBlocks(chunkX: number, chunkZ: number): Uint8Array {
 
         if (y === height) {
           blocks[index] = topBlock
-        } else if (y >= height - 3) {
-          blocks[index] = BlockId.Dirt
         } else {
-          blocks[index] = BlockId.Stone
+          blocks[index] = getSubsurfaceBlockAt(worldX, worldZ, y, height)
         }
       }
 
       if (height < SEA_LEVEL) {
+        const cold = isColdAt(worldX, worldZ)
         for (let y = height + 1; y <= SEA_LEVEL && y < CHUNK_HEIGHT; y += 1) {
           const index = toIndex(x, y, z)
           if (blocks[index] === BlockId.Air) {
-            blocks[index] = BlockId.Water
+            const topWater = y === SEA_LEVEL
+            blocks[index] = topWater && cold ? BlockId.Ice : BlockId.Water
           }
         }
       }

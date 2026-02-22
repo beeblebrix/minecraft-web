@@ -1,13 +1,16 @@
 import * as THREE from 'three'
+import { createGooeyMaterials, createGooPuddleMaterial } from '../render/mobTextures'
 
 type TerrainProvider = {
   getSurfaceHeight: (worldX: number, worldZ: number) => number
+  isSolidBlock: (worldX: number, y: number, worldZ: number) => boolean
+  isWaterBlock: (worldX: number, y: number, worldZ: number) => boolean
 }
 
 type MobState = 'wander' | 'chase'
 
 type Mob = {
-  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>
+  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.Material[]>
   spawnAnchor: THREE.Vector3
   target: THREE.Vector3
   velocity: THREE.Vector3
@@ -19,6 +22,14 @@ type Mob = {
   respawnTimer: number
   hitStunTimer: number
   hitFlashTimer: number
+  lastPuddlePosition: THREE.Vector3
+}
+
+type GooPuddle = {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshLambertMaterial>
+  age: number
+  lifetime: number
+  baseScale: number
 }
 
 export type MobUpdateResult = {
@@ -52,14 +63,23 @@ const MOB_HIT_FLASH_SECONDS = 0.12
 const PLAYER_COLLISION_RADIUS = 0.45
 const MOB_COLLISION_RADIUS = 0.45
 const MIN_PLAYER_SEPARATION = PLAYER_COLLISION_RADIUS + MOB_COLLISION_RADIUS
+const GOO_TRAIL_STEP_DISTANCE = 1.15
+const GOO_PUDDLE_MIN_LIFETIME = 9
+const GOO_PUDDLE_MAX_LIFETIME = 15
+const GOO_PUDDLE_MIN_SCALE = 0.68
+const GOO_PUDDLE_MAX_SCALE = 1.08
 
-export class SimpleMobSystem {
+export class GooeyMobSystem {
   readonly root = new THREE.Group()
 
   private readonly terrain: TerrainProvider
   private readonly mobs: Mob[] = []
   private readonly geometry = new THREE.BoxGeometry(0.9, 0.9, 0.9)
-  private readonly baseColor = new THREE.Color(0x71d45b)
+  private readonly puddleGeometry = new THREE.PlaneGeometry(1, 1)
+  private readonly puddles: GooPuddle[] = []
+  private readonly puddleMaterialTemplate = createGooPuddleMaterial()
+  private readonly baseColor = new THREE.Color(0xffffff)
+  private readonly hitFlashColor = new THREE.Color(0xffc5c5)
   private readonly tempClosestPoint = new THREE.Vector3()
 
   constructor(terrain: TerrainProvider) {
@@ -230,19 +250,26 @@ export class SimpleMobSystem {
       }
 
       this.resolvePlayerCollision(mob, playerPosition)
+      this.trySpawnPuddle(mob)
 
       const grounded = mob.mesh.position.y <= settledSurfaceY + 0.01
       mob.mesh.scale.y = grounded ? 0.88 + Math.sin(mob.animOffset) * 0.08 : 0.95
 
       if (mob.hitFlashTimer > 0) {
         const flash = mob.hitFlashTimer / MOB_HIT_FLASH_SECONDS
-        mob.mesh.material.color.lerpColors(this.baseColor, new THREE.Color(0xffc5c5), flash)
-        mob.mesh.material.emissive.setRGB(flash * 0.35, flash * 0.08, flash * 0.08)
+        this.forEachMobMaterial(mob, (material) => {
+          material.color.lerpColors(this.baseColor, this.hitFlashColor, flash)
+          material.emissive.setRGB(flash * 0.35, flash * 0.08, flash * 0.08)
+        })
       } else {
-        mob.mesh.material.color.copy(this.baseColor)
-        mob.mesh.material.emissive.setRGB(0, 0, 0)
+        this.forEachMobMaterial(mob, (material) => {
+          material.color.copy(this.baseColor)
+          material.emissive.setRGB(0, 0, 0)
+        })
       }
     }
+
+    this.updatePuddles(delta)
 
     return {
       total: this.mobs.length,
@@ -255,18 +282,30 @@ export class SimpleMobSystem {
   dispose(): void {
     for (const mob of this.mobs) {
       this.root.remove(mob.mesh)
-      mob.mesh.material.dispose()
+      this.forEachMobMaterial(mob, (material) => material.dispose())
     }
     this.mobs.length = 0
 
+    for (const puddle of this.puddles) {
+      this.root.remove(puddle.mesh)
+      puddle.mesh.material.dispose()
+    }
+    this.puddles.length = 0
+
     this.geometry.dispose()
+    this.puddleGeometry.dispose()
+    this.puddleMaterialTemplate.dispose()
   }
 
   private spawnInitialMobs(playerPosition: THREE.Vector3): void {
     for (let i = 0; i < MOB_COUNT; i += 1) {
-      const spawn = randomAround(playerPosition, 8, 30)
+      const spawn = this.findDrySpawn(playerPosition, 8, 30, 18)
+      if (!spawn) {
+        continue
+      }
+
       const surfaceHeight = this.terrain.getSurfaceHeight(spawn.x, spawn.z)
-      const mesh = new THREE.Mesh(this.geometry, new THREE.MeshLambertMaterial({ color: this.baseColor }))
+      const mesh = new THREE.Mesh(this.geometry, createGooeyMaterials())
       mesh.position.set(spawn.x, surfaceHeight + 0.45, spawn.z)
       mesh.castShadow = false
       mesh.receiveShadow = true
@@ -284,6 +323,7 @@ export class SimpleMobSystem {
         respawnTimer: 0,
         hitStunTimer: 0,
         hitFlashTimer: 0,
+        lastPuddlePosition: mesh.position.clone(),
       }
 
       this.pickWanderTarget(mob)
@@ -293,7 +333,11 @@ export class SimpleMobSystem {
   }
 
   private teleportNearPlayer(mob: Mob, playerPosition: THREE.Vector3): void {
-    const spawn = randomAround(playerPosition, 10, 22)
+    const spawn = this.findDrySpawn(playerPosition, 10, 22, 20)
+    if (!spawn) {
+      return
+    }
+
     const surfaceHeight = this.terrain.getSurfaceHeight(spawn.x, spawn.z)
     mob.mesh.position.set(spawn.x, surfaceHeight + 0.45, spawn.z)
     mob.spawnAnchor.set(spawn.x, surfaceHeight, spawn.z)
@@ -301,9 +345,103 @@ export class SimpleMobSystem {
     mob.attackCooldown = ATTACK_COOLDOWN * (0.6 + Math.random() * 0.7)
     mob.hitStunTimer = 0
     mob.hitFlashTimer = 0
-    mob.mesh.material.color.copy(this.baseColor)
-    mob.mesh.material.emissive.setRGB(0, 0, 0)
+    this.forEachMobMaterial(mob, (material) => {
+      material.color.copy(this.baseColor)
+      material.emissive.setRGB(0, 0, 0)
+    })
+    mob.lastPuddlePosition.copy(mob.mesh.position)
     this.pickWanderTarget(mob)
+  }
+
+  private findDrySpawn(
+    center: THREE.Vector3,
+    minRadius: number,
+    maxRadius: number,
+    attempts: number,
+  ): THREE.Vector3 | null {
+    for (let i = 0; i < attempts; i += 1) {
+      const candidate = randomAround(center, minRadius, maxRadius)
+      const surfaceHeight = this.terrain.getSurfaceHeight(candidate.x, candidate.z)
+      if (!this.isUnderwaterAt(candidate.x, surfaceHeight + 0.45, candidate.z)) {
+        return candidate
+      }
+    }
+
+    return null
+  }
+
+  private isUnderwaterAt(x: number, y: number, z: number): boolean {
+    const tx = Math.floor(x)
+    const tz = Math.floor(z)
+    const bodyY = Math.floor(y)
+    const headY = Math.floor(y + 0.8)
+    return this.terrain.isWaterBlock(tx, bodyY, tz) || this.terrain.isWaterBlock(tx, headY, tz)
+  }
+
+  private trySpawnPuddle(mob: Mob): void {
+    const dx = mob.mesh.position.x - mob.lastPuddlePosition.x
+    const dz = mob.mesh.position.z - mob.lastPuddlePosition.z
+    const distance = Math.hypot(dx, dz)
+
+    if (distance < GOO_TRAIL_STEP_DISTANCE) {
+      return
+    }
+
+    const puddleX = Math.floor(mob.mesh.position.x)
+    const puddleZ = Math.floor(mob.mesh.position.z)
+    const supportY = Math.floor(mob.mesh.position.y - 0.51)
+    if (!this.terrain.isSolidBlock(puddleX, supportY, puddleZ)) {
+      return
+    }
+
+    const puddleMaterial = this.puddleMaterialTemplate.clone()
+    const puddleMesh = new THREE.Mesh(this.puddleGeometry, puddleMaterial)
+    const puddleY = supportY + 1.01
+    const scale = GOO_PUDDLE_MIN_SCALE + Math.random() * (GOO_PUDDLE_MAX_SCALE - GOO_PUDDLE_MIN_SCALE)
+    const lifetime = GOO_PUDDLE_MIN_LIFETIME + Math.random() * (GOO_PUDDLE_MAX_LIFETIME - GOO_PUDDLE_MIN_LIFETIME)
+
+    puddleMesh.rotation.x = -Math.PI / 2
+    puddleMesh.position.set(puddleX + 0.5, puddleY, puddleZ + 0.5)
+    puddleMesh.scale.setScalar(scale)
+
+    this.root.add(puddleMesh)
+    this.puddles.push({
+      mesh: puddleMesh,
+      age: 0,
+      lifetime,
+      baseScale: scale,
+    })
+
+    mob.lastPuddlePosition.copy(mob.mesh.position)
+  }
+
+  private updatePuddles(delta: number): void {
+    for (let i = this.puddles.length - 1; i >= 0; i -= 1) {
+      const puddle = this.puddles[i]
+      puddle.age += delta
+
+      const life = Math.min(1, puddle.age / puddle.lifetime)
+      const scale = puddle.baseScale * (1 - life * 0.82)
+      puddle.mesh.scale.setScalar(Math.max(0.06, scale))
+      puddle.mesh.material.opacity = 0.78 * (1 - life)
+
+      if (life < 1) {
+        continue
+      }
+
+      this.root.remove(puddle.mesh)
+      puddle.mesh.material.dispose()
+      this.puddles.splice(i, 1)
+    }
+  }
+
+  private forEachMobMaterial(
+    mob: Mob,
+    callback: (material: THREE.MeshLambertMaterial) => void,
+  ): void {
+    for (const material of mob.mesh.material) {
+      callback(material as THREE.MeshLambertMaterial)
+    }
   }
 
   private pickWanderTarget(mob: Mob): void {

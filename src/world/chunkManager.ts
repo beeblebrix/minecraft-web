@@ -8,8 +8,14 @@ import {
   type GenerateChunkRequest,
   type GenerateChunkResponse,
 } from './chunk'
-import { getHeightAt as terrainHeightAt, getTopBlockAt as terrainTopBlockAt } from './terrainMath'
+import {
+  getHeightAt as terrainHeightAt,
+  getSubsurfaceBlockAt as terrainSubsurfaceAt,
+  getTopBlockAt as terrainTopBlockAt,
+  isColdAt as terrainIsColdAt,
+} from './terrainMath'
 import { raycastVoxel } from './voxelRaycast'
+import { createBlockTextures } from '../render/blockTextures'
 
 type ChunkRecord = {
   data: ChunkData
@@ -35,6 +41,7 @@ export class ChunkManager {
   private readonly worker: Worker
   private readonly savedChunks: Map<string, ArrayBuffer>
   private readonly onChunkChanged?: (chunkX: number, chunkZ: number, blocks: ArrayBuffer) => void | Promise<void>
+  private readonly textures = createBlockTextures()
   private readonly dirtGreenReadyAt = new Map<string, number>()
   private readonly dirtGreenGrown = new Set<string>()
   private readonly growthDirtyChunkKeys = new Set<string>()
@@ -194,9 +201,16 @@ export class ChunkManager {
   private buildChunkMesh(data: ChunkData): THREE.Object3D {
     let dirtCount = 0
     let stoneCount = 0
-    let woodCount = 0
+    let logCount = 0
     let leavesCount = 0
-    let waterCount = 0
+    let sandCount = 0
+    let snowCount = 0
+    let iceCount = 0
+    let waterTopCount = 0
+    let waterNorthCount = 0
+    let waterSouthCount = 0
+    let waterWestCount = 0
+    let waterEastCount = 0
     let dirtTopCapCount = 0
 
     for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
@@ -209,6 +223,26 @@ export class ChunkManager {
 
           const worldX = data.chunkX * CHUNK_SIZE + x
           const worldZ = data.chunkZ * CHUNK_SIZE + z
+
+          if (block === BlockId.Water) {
+            if (this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air) {
+              waterTopCount += 1
+            }
+            if (this.getBlockAtForMeshing(worldX, y, worldZ - 1, data) === BlockId.Air) {
+              waterNorthCount += 1
+            }
+            if (this.getBlockAtForMeshing(worldX, y, worldZ + 1, data) === BlockId.Air) {
+              waterSouthCount += 1
+            }
+            if (this.getBlockAtForMeshing(worldX - 1, y, worldZ, data) === BlockId.Air) {
+              waterWestCount += 1
+            }
+            if (this.getBlockAtForMeshing(worldX + 1, y, worldZ, data) === BlockId.Air) {
+              waterEastCount += 1
+            }
+            continue
+          }
+
           const exposed = this.isBlockExposed(worldX, y, worldZ, data, block)
           const topExposed = this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air
 
@@ -219,12 +253,16 @@ export class ChunkManager {
               dirtCount += 1
             } else if (block === BlockId.Stone) {
               stoneCount += 1
-            } else if (block === BlockId.Wood) {
-              woodCount += 1
+            } else if (block === BlockId.Log) {
+              logCount += 1
             } else if (block === BlockId.Leaves) {
               leavesCount += 1
-            } else if (block === BlockId.Water) {
-              waterCount += 1
+            } else if (block === BlockId.Sand) {
+              sandCount += 1
+            } else if (block === BlockId.Snow) {
+              snowCount += 1
+            } else if (block === BlockId.Ice) {
+              iceCount += 1
             }
 
             if (this.shouldRenderDirtGrassTopCap(worldX, y, worldZ, block, topExposed)) {
@@ -239,27 +277,78 @@ export class ChunkManager {
     const topCapGeometry = new THREE.PlaneGeometry(1, 1)
     const chunkGroup = new THREE.Group()
 
-    const dirtMesh = createChunkLayerMesh(blockGeometry, 0x7f5936, dirtCount)
-    const stoneMesh = createChunkLayerMesh(blockGeometry, 0x746e67, stoneCount)
-    const woodMesh = createChunkLayerMesh(blockGeometry, 0x8a623d, woodCount)
-    const leavesMesh = createChunkLayerMesh(blockGeometry, 0x4f9447, leavesCount)
-    const waterMesh = createChunkLayerMesh(blockGeometry, 0x4da8ff, waterCount, {
+    const dirtMesh = createChunkLayerMesh(blockGeometry, dirtCount, { map: this.textures.dirt })
+    const stoneMesh = createChunkLayerMesh(blockGeometry, stoneCount, { map: this.textures.stone })
+    const logMesh = createChunkLayerMesh(blockGeometry, logCount, {
+      material: [
+        materialFromTexture(this.textures.logSide),
+        materialFromTexture(this.textures.logSide),
+        materialFromTexture(this.textures.logTop),
+        materialFromTexture(this.textures.logTop),
+        materialFromTexture(this.textures.logSide),
+        materialFromTexture(this.textures.logSide),
+      ],
+    })
+    const leavesMesh = createChunkLayerMesh(blockGeometry, leavesCount, { map: this.textures.leaves })
+    const sandMesh = createChunkLayerMesh(blockGeometry, sandCount, { map: this.textures.sand })
+    const snowMesh = createChunkLayerMesh(blockGeometry, snowCount, { map: this.textures.snow })
+    const iceMesh = createChunkLayerMesh(blockGeometry, iceCount, {
+      map: this.textures.ice,
+      transparent: true,
+      opacity: 0.85,
+    })
+    const waterFaceGeometry = new THREE.PlaneGeometry(1, 1)
+    const waterMaterialOptions = {
+      map: this.textures.water,
       transparent: true,
       opacity: 0.65,
-    })
-    const dirtTopCapMesh = createChunkLayerMesh(topCapGeometry, 0x64b84c, dirtTopCapCount)
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }
+    const waterTopMesh = createChunkLayerMesh(waterFaceGeometry, waterTopCount, waterMaterialOptions)
+    const waterNorthMesh = createChunkLayerMesh(waterFaceGeometry, waterNorthCount, waterMaterialOptions)
+    const waterSouthMesh = createChunkLayerMesh(waterFaceGeometry, waterSouthCount, waterMaterialOptions)
+    const waterWestMesh = createChunkLayerMesh(waterFaceGeometry, waterWestCount, waterMaterialOptions)
+    const waterEastMesh = createChunkLayerMesh(waterFaceGeometry, waterEastCount, waterMaterialOptions)
+    const dirtTopCapMesh = createChunkLayerMesh(topCapGeometry, dirtTopCapCount, { map: this.textures.grassTop })
 
-    chunkGroup.add(dirtMesh, stoneMesh, woodMesh, leavesMesh, waterMesh, dirtTopCapMesh)
+    chunkGroup.add(
+      dirtMesh,
+      stoneMesh,
+      logMesh,
+      leavesMesh,
+      sandMesh,
+      snowMesh,
+      iceMesh,
+      waterTopMesh,
+      waterNorthMesh,
+      waterSouthMesh,
+      waterWestMesh,
+      waterEastMesh,
+      dirtTopCapMesh,
+    )
 
     const matrix = new THREE.Matrix4()
     const capPosition = new THREE.Vector3()
     const capRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
     const capScale = new THREE.Vector3(1, 1, 1)
+    const waterTopRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
+    const waterNorthRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0))
+    const waterSouthRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0))
+    const waterWestRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.PI / 2, 0))
+    const waterEastRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0))
     let dirtIndex = 0
     let stoneIndex = 0
-    let woodIndex = 0
+    let logIndex = 0
     let leavesIndex = 0
-    let waterIndex = 0
+    let sandIndex = 0
+    let snowIndex = 0
+    let iceIndex = 0
+    let waterTopIndex = 0
+    let waterNorthIndex = 0
+    let waterSouthIndex = 0
+    let waterWestIndex = 0
+    let waterEastIndex = 0
     let dirtTopCapIndex = 0
 
     for (let y = 0; y < CHUNK_HEIGHT; y += 1) {
@@ -272,6 +361,46 @@ export class ChunkManager {
 
           const worldX = data.chunkX * CHUNK_SIZE + x
           const worldZ = data.chunkZ * CHUNK_SIZE + z
+
+          if (block === BlockId.Water) {
+            if (this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air) {
+              capPosition.set(worldX + 0.5, y + 0.999, worldZ + 0.5)
+              matrix.compose(capPosition, waterTopRotation, capScale)
+              waterTopMesh.setMatrixAt(waterTopIndex, matrix)
+              waterTopIndex += 1
+            }
+
+            if (this.getBlockAtForMeshing(worldX, y, worldZ - 1, data) === BlockId.Air) {
+              capPosition.set(worldX + 0.5, y + 0.5, worldZ + 0.001)
+              matrix.compose(capPosition, waterNorthRotation, capScale)
+              waterNorthMesh.setMatrixAt(waterNorthIndex, matrix)
+              waterNorthIndex += 1
+            }
+
+            if (this.getBlockAtForMeshing(worldX, y, worldZ + 1, data) === BlockId.Air) {
+              capPosition.set(worldX + 0.5, y + 0.5, worldZ + 0.999)
+              matrix.compose(capPosition, waterSouthRotation, capScale)
+              waterSouthMesh.setMatrixAt(waterSouthIndex, matrix)
+              waterSouthIndex += 1
+            }
+
+            if (this.getBlockAtForMeshing(worldX - 1, y, worldZ, data) === BlockId.Air) {
+              capPosition.set(worldX + 0.001, y + 0.5, worldZ + 0.5)
+              matrix.compose(capPosition, waterWestRotation, capScale)
+              waterWestMesh.setMatrixAt(waterWestIndex, matrix)
+              waterWestIndex += 1
+            }
+
+            if (this.getBlockAtForMeshing(worldX + 1, y, worldZ, data) === BlockId.Air) {
+              capPosition.set(worldX + 0.999, y + 0.5, worldZ + 0.5)
+              matrix.compose(capPosition, waterEastRotation, capScale)
+              waterEastMesh.setMatrixAt(waterEastIndex, matrix)
+              waterEastIndex += 1
+            }
+
+            continue
+          }
+
           const exposed = this.isBlockExposed(worldX, y, worldZ, data, block)
           const topExposed = this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air
 
@@ -287,15 +416,21 @@ export class ChunkManager {
           } else if (block === BlockId.Stone) {
             stoneMesh.setMatrixAt(stoneIndex, matrix)
             stoneIndex += 1
-          } else if (block === BlockId.Wood) {
-            woodMesh.setMatrixAt(woodIndex, matrix)
-            woodIndex += 1
+          } else if (block === BlockId.Log) {
+            logMesh.setMatrixAt(logIndex, matrix)
+            logIndex += 1
           } else if (block === BlockId.Leaves) {
             leavesMesh.setMatrixAt(leavesIndex, matrix)
             leavesIndex += 1
-          } else if (block === BlockId.Water) {
-            waterMesh.setMatrixAt(waterIndex, matrix)
-            waterIndex += 1
+          } else if (block === BlockId.Sand) {
+            sandMesh.setMatrixAt(sandIndex, matrix)
+            sandIndex += 1
+          } else if (block === BlockId.Snow) {
+            snowMesh.setMatrixAt(snowIndex, matrix)
+            snowIndex += 1
+          } else if (block === BlockId.Ice) {
+            iceMesh.setMatrixAt(iceIndex, matrix)
+            iceIndex += 1
           }
 
           if (this.shouldRenderDirtGrassTopCap(worldX, y, worldZ, block, topExposed)) {
@@ -310,16 +445,30 @@ export class ChunkManager {
 
     dirtMesh.count = dirtIndex
     stoneMesh.count = stoneIndex
-    woodMesh.count = woodIndex
+    logMesh.count = logIndex
     leavesMesh.count = leavesIndex
-    waterMesh.count = waterIndex
+    sandMesh.count = sandIndex
+    snowMesh.count = snowIndex
+    iceMesh.count = iceIndex
+    waterTopMesh.count = waterTopIndex
+    waterNorthMesh.count = waterNorthIndex
+    waterSouthMesh.count = waterSouthIndex
+    waterWestMesh.count = waterWestIndex
+    waterEastMesh.count = waterEastIndex
     dirtTopCapMesh.count = dirtTopCapIndex
 
     dirtMesh.instanceMatrix.needsUpdate = true
     stoneMesh.instanceMatrix.needsUpdate = true
-    woodMesh.instanceMatrix.needsUpdate = true
+    logMesh.instanceMatrix.needsUpdate = true
     leavesMesh.instanceMatrix.needsUpdate = true
-    waterMesh.instanceMatrix.needsUpdate = true
+    sandMesh.instanceMatrix.needsUpdate = true
+    snowMesh.instanceMatrix.needsUpdate = true
+    iceMesh.instanceMatrix.needsUpdate = true
+    waterTopMesh.instanceMatrix.needsUpdate = true
+    waterNorthMesh.instanceMatrix.needsUpdate = true
+    waterSouthMesh.instanceMatrix.needsUpdate = true
+    waterWestMesh.instanceMatrix.needsUpdate = true
+    waterEastMesh.instanceMatrix.needsUpdate = true
     dirtTopCapMesh.instanceMatrix.needsUpdate = true
 
     return chunkGroup
@@ -639,15 +788,11 @@ export class ChunkManager {
         return terrainTopBlockAt(worldX, worldZ, height)
       }
 
-      if (y >= height - 3) {
-        return BlockId.Dirt
-      }
-
-      return BlockId.Stone
+      return terrainSubsurfaceAt(worldX, worldZ, y, height)
     }
 
     if (y <= SEA_LEVEL) {
-      return BlockId.Water
+      return y === SEA_LEVEL && terrainIsColdAt(worldX, worldZ) ? BlockId.Ice : BlockId.Water
     }
 
     return BlockId.Air
@@ -689,20 +834,38 @@ export class ChunkManager {
 
 function createChunkLayerMesh(
   geometry: THREE.BufferGeometry,
-  color: number,
   instanceCount: number,
-  materialOptions: { transparent?: boolean; opacity?: number } = {},
+  materialOptions: {
+    map?: THREE.Texture
+    color?: number
+    transparent?: boolean
+    opacity?: number
+    depthWrite?: boolean
+    side?: THREE.Side
+    material?: THREE.Material | THREE.Material[]
+  } = {},
 ): THREE.InstancedMesh {
-  const material = new THREE.MeshLambertMaterial({
-    color,
-    transparent: materialOptions.transparent,
-    opacity: materialOptions.opacity,
-  })
+  const material =
+    materialOptions.material ??
+    new THREE.MeshLambertMaterial({
+      color: materialOptions.color ?? 0xffffff,
+      map: materialOptions.map,
+      transparent: materialOptions.transparent,
+      opacity: materialOptions.opacity,
+      depthWrite: materialOptions.depthWrite,
+      side: materialOptions.side,
+    })
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(instanceCount, 1))
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
   mesh.castShadow = false
   mesh.receiveShadow = true
   return mesh
+}
+
+function materialFromTexture(texture: THREE.Texture): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({
+    map: texture,
+  })
 }
 
 function disposeObject(object: THREE.Object3D): void {

@@ -4,7 +4,7 @@ import { FirstPersonController } from './player/firstPersonController'
 import { BlockId, CHUNK_SIZE } from './world/chunk'
 import { ChunkManager } from './world/chunkManager'
 import { WorldStorage } from './storage/worldStorage'
-import { SimpleMobSystem } from './mobs/simpleMobSystem'
+import { GooeyMobSystem } from './mobs/simpleMobSystem'
 import { SoundSystem } from './audio/soundSystem'
 
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -40,7 +40,7 @@ app.innerHTML = `
       <h3 class="inventory-title">Inventory</h3>
       <div class="inventory-grid" id="inventory-grid"></div>
       <p class="inventory-help">Drag items from inventory into crafting cells</p>
-      <div class="recipe-list">Recipes: 4 Dirt -> 1 Stone | 2 Wood -> 1 Stone</div>
+      <div class="recipe-list">Recipes: 4 Dirt -> 1 Stone | 2 Log -> 1 Stone</div>
     </div>
   </div>
 `
@@ -91,7 +91,7 @@ const inventoryGrid = inventoryGridNode
 const HOTBAR_SLOTS = [
   { block: BlockId.Dirt, label: 'Dirt', color: '#7f5936' },
   { block: BlockId.Stone, label: 'Stone', color: '#746e67' },
-  { block: BlockId.Wood, label: 'Wood', color: '#8a623d' },
+  { block: BlockId.Log, label: 'Log', color: '#8a623d' },
 ] as const
 
 type CraftRecipe = {
@@ -119,7 +119,7 @@ let inventorySaveTimer: ReturnType<typeof setTimeout> | null = null
 const inventory = new Map<BlockId, number>([
   [BlockId.Dirt, 0],
   [BlockId.Stone, 0],
-  [BlockId.Wood, 0],
+  [BlockId.Log, 0],
 ])
 const craftCells: Array<BlockId | null> = [null, null, null, null]
 const craftRecipes: CraftRecipe[] = [
@@ -129,9 +129,9 @@ const craftRecipes: CraftRecipe[] = [
     label: '4 Dirt -> 1 Stone',
   },
   {
-    input: { [BlockId.Wood]: 2 },
+    input: { [BlockId.Log]: 2 },
     output: { block: BlockId.Stone, amount: 1 },
-    label: '2 Wood -> 1 Stone',
+    label: '2 Log -> 1 Stone',
   },
 ]
 
@@ -574,7 +574,7 @@ const chunkManager = new ChunkManager(VIEW_DISTANCE_IN_CHUNKS, {
 })
 scene.add(chunkManager.root)
 
-const mobSystem = new SimpleMobSystem(chunkManager)
+const mobSystem = new GooeyMobSystem(chunkManager)
 scene.add(mobSystem.root)
 
 const blockHighlight = new THREE.LineSegments(
@@ -792,12 +792,12 @@ function updateHud() {
     'Milestone 3 complete: target + break/place',
     'Milestone 4 complete: save/load edited chunks',
     'Milestone 5 complete: hotbar + pause menu',
-    'Milestone 6 in progress: lighting + simple mobs',
+    'Milestone 6 in progress: lighting + gooey mobs',
     `Position x:${position.x.toFixed(1)} y:${position.y.toFixed(1)} z:${position.z.toFixed(1)}`,
     `Chunk x:${currentChunk.x} z:${currentChunk.z} | Loaded: ${loadedChunks} | Pending: ${pendingChunks} | Saved: ${savedChunkCount} | Chunk size: ${CHUNK_SIZE}`,
     `Time of day: ${timeText}`,
     `Mode: ${modeText}`,
-    `Health: ${Math.floor(playerHealth)} | Mobs: ${mobStats.alive}/${mobStats.total} | Chasing: ${mobStats.chasing}`,
+    `Health: ${Math.floor(playerHealth)} | Gooeys: ${mobStats.alive}/${mobStats.total} | Chasing: ${mobStats.chasing}`,
     combatStatus,
     `Selected block: ${slot.label} (${selectedSlotIndex + 1}) | Count: ${getInventoryCount(slot.block)}`,
     targetText,
