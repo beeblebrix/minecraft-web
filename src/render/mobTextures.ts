@@ -2,6 +2,11 @@ import * as THREE from 'three'
 
 const SIZE = 16
 const GHOST_OPACITY = 0.85
+const TEXTURE_BASE_PATH = `${import.meta.env.BASE_URL}textures/`
+
+function texturePath(filename: string): string {
+  return `${TEXTURE_BASE_PATH}${filename}`
+}
 
 function noise(x: number, y: number, seed: number): number {
   let value = x * 374761393 + y * 668265263 + seed * 362437
@@ -90,15 +95,38 @@ function createGooTexture(paths: string[]): THREE.Texture {
 }
 
 export function createGooeyMaterials(): THREE.MeshLambertMaterial[] {
-  const side = createFaceTexture(['/textures/gooey_side.png', '/textures/mob_side.png', '/textures/gooey.png', '/textures/mob.png'], 91)
-  const top = createFaceTexture(['/textures/gooey_top.png', '/textures/mob_top.png', '/textures/gooey.png', '/textures/mob.png'], 97)
+  const side = createFaceTexture(
+    [texturePath('gooey_side.png'), texturePath('mob_side.png'), texturePath('gooey.png'), texturePath('mob.png')],
+    91,
+  )
+  const top = createFaceTexture(
+    [texturePath('gooey_top.png'), texturePath('mob_top.png'), texturePath('gooey.png'), texturePath('mob.png')],
+    97,
+  )
   const bottom = createFaceTexture(
-    ['/textures/gooey_bottom.png', '/textures/mob_bottom.png', '/textures/gooey_top.png', '/textures/mob_top.png', '/textures/gooey.png', '/textures/mob.png'],
+    [
+      texturePath('gooey_bottom.png'),
+      texturePath('mob_bottom.png'),
+      texturePath('gooey_top.png'),
+      texturePath('mob_top.png'),
+      texturePath('gooey.png'),
+      texturePath('mob.png'),
+    ],
     103,
   )
-  const front = createFaceTexture(['/textures/gooey_front.png', '/textures/mob_front.png', '/textures/gooey.png', '/textures/mob.png'], 109)
+  const front = createFaceTexture(
+    [texturePath('gooey_front.png'), texturePath('mob_front.png'), texturePath('gooey.png'), texturePath('mob.png')],
+    109,
+  )
   const back = createFaceTexture(
-    ['/textures/gooey_back.png', '/textures/mob_back.png', '/textures/gooey_side.png', '/textures/mob_side.png', '/textures/gooey.png', '/textures/mob.png'],
+    [
+      texturePath('gooey_back.png'),
+      texturePath('mob_back.png'),
+      texturePath('gooey_side.png'),
+      texturePath('mob_side.png'),
+      texturePath('gooey.png'),
+      texturePath('mob.png'),
+    ],
     113,
   )
 
@@ -121,7 +149,7 @@ export function createGooeyMaterials(): THREE.MeshLambertMaterial[] {
 }
 
 export function createGooPuddleMaterial(): THREE.MeshLambertMaterial {
-  const texture = createGooTexture(['/textures/goo_puddle.png', '/textures/goo.png'])
+  const texture = createGooTexture([texturePath('goo_puddle.png'), texturePath('goo.png')])
 
   return new THREE.MeshLambertMaterial({
     map: texture,

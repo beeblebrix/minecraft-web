@@ -638,11 +638,16 @@ export class ChunkManager {
 
     const data = new ChunkData(chunkX, chunkZ)
     const saved = this.savedChunks.get(key)
+    const expectedByteLength = CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE
 
-    if (saved) {
+    if (saved && saved.byteLength === expectedByteLength) {
       data.loadFromBuffer(saved)
     } else {
       data.loadFromBuffer(blocks)
+
+      if (saved && saved.byteLength !== expectedByteLength) {
+        this.savedChunks.delete(key)
+      }
     }
 
     const object = this.buildChunkMesh(data)

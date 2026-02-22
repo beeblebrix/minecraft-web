@@ -14,6 +14,11 @@ type TextureSet = {
 }
 
 const SIZE = 16
+const TEXTURE_BASE_PATH = `${import.meta.env.BASE_URL}textures/`
+
+function texturePath(filename: string): string {
+  return `${TEXTURE_BASE_PATH}${filename}`
+}
 
 function noise(x: number, y: number, seed: number): number {
   let value = x * 374761393 + y * 668265263 + seed * 362437
@@ -62,7 +67,7 @@ function createTextureWithExternalOverride(
 }
 
 export function createBlockTextures(): TextureSet {
-  const dirt = createTextureWithExternalOverride('/textures/dirt.png', (x, y) => {
+  const dirt = createTextureWithExternalOverride(texturePath('dirt.png'), (x, y) => {
     const n = noise(x, y, 11)
     if (n < 0.2) {
       return '#6a4428'
@@ -73,7 +78,7 @@ export function createBlockTextures(): TextureSet {
     return '#7b5633'
   })
 
-  const stone = createTextureWithExternalOverride('/textures/stone.png', (x, y) => {
+  const stone = createTextureWithExternalOverride(texturePath('stone.png'), (x, y) => {
     const n = noise(x, y, 23)
     if (n < 0.15) {
       return '#5f5c59'
@@ -84,7 +89,7 @@ export function createBlockTextures(): TextureSet {
     return '#746e67'
   })
 
-  const logSide = createTextureWithExternalOverride('/textures/log_side.png', (x, y) => {
+  const logSide = createTextureWithExternalOverride(texturePath('log_side.png'), (x, y) => {
     const ring = (Math.sin(x * 0.9) + 1) * 0.5
     const n = noise(x, y, 37)
     if (ring > 0.74 || n > 0.88) {
@@ -96,7 +101,7 @@ export function createBlockTextures(): TextureSet {
     return '#865f3a'
   })
 
-  const logTop = createTextureWithExternalOverride('/textures/log_top.png', (x, y) => {
+  const logTop = createTextureWithExternalOverride(texturePath('log_top.png'), (x, y) => {
     const cx = x - SIZE / 2 + 0.5
     const cy = y - SIZE / 2 + 0.5
     const distance = Math.hypot(cx, cy)
@@ -114,7 +119,7 @@ export function createBlockTextures(): TextureSet {
     return '#8a623d'
   })
 
-  const leaves = createTextureWithExternalOverride('/textures/leaves.png', (x, y) => {
+  const leaves = createTextureWithExternalOverride(texturePath('leaves.png'), (x, y) => {
     const n = noise(x, y, 51)
     if (n < 0.16) {
       return '#3e7039'
@@ -125,7 +130,7 @@ export function createBlockTextures(): TextureSet {
     return '#4f9447'
   })
 
-  const water = createTextureWithExternalOverride('/textures/water.png', (x, y) => {
+  const water = createTextureWithExternalOverride(texturePath('water.png'), (x, y) => {
     const wave = (Math.sin((x + y) * 0.7) + Math.cos((x - y) * 0.5)) * 0.5
     const n = noise(x, y, 67)
     if (wave > 0.45 || n > 0.86) {
@@ -137,7 +142,7 @@ export function createBlockTextures(): TextureSet {
     return '#4da8ff'
   })
 
-  const grassTop = createTextureWithExternalOverride('/textures/grass_top.png', (x, y) => {
+  const grassTop = createTextureWithExternalOverride(texturePath('grass_top.png'), (x, y) => {
     const n = noise(x, y, 79)
     if (n < 0.2) {
       return '#4c8d42'
@@ -148,7 +153,7 @@ export function createBlockTextures(): TextureSet {
     return '#62ad4c'
   })
 
-  const sand = createTextureWithExternalOverride('/textures/sand.png', (x, y) => {
+  const sand = createTextureWithExternalOverride(texturePath('sand.png'), (x, y) => {
     const n = noise(x, y, 131)
     if (n < 0.15) {
       return '#c8b17a'
@@ -159,7 +164,7 @@ export function createBlockTextures(): TextureSet {
     return '#d8c489'
   })
 
-  const snow = createTextureWithExternalOverride('/textures/snow.png', (x, y) => {
+  const snow = createTextureWithExternalOverride(texturePath('snow.png'), (x, y) => {
     const n = noise(x, y, 149)
     if (n < 0.12) {
       return '#dbe9f4'
@@ -170,7 +175,7 @@ export function createBlockTextures(): TextureSet {
     return '#eef6ff'
   })
 
-  const ice = createTextureWithExternalOverride('/textures/ice.png', (x, y) => {
+  const ice = createTextureWithExternalOverride(texturePath('ice.png'), (x, y) => {
     const n = noise(x, y, 167)
     if (n < 0.2) {
       return '#7dbbe8'
