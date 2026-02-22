@@ -8,7 +8,7 @@ import {
   type GenerateChunkRequest,
   type GenerateChunkResponse,
 } from './chunk'
-import { getHeightAt, getSubsurfaceBlockAt, getTopBlockAt, isColdAt } from './terrainMath'
+import { BiomeId, getBiomeAt, getFluidBlockAt, getHeightAt, getSubsurfaceBlockAt, getTopBlockAt } from './terrainMath'
 
 function toIndex(x: number, y: number, z: number): number {
   return x + z * CHUNK_SIZE + y * CHUNK_SIZE * CHUNK_SIZE
@@ -37,9 +37,21 @@ function addTrees(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
     for (let x = 2; x < CHUNK_SIZE - 2; x += 1) {
       const worldX = chunkX * CHUNK_SIZE + x
       const worldZ = chunkZ * CHUNK_SIZE + z
+      const biome = getBiomeAt(worldX, worldZ)
+
+      if (biome === BiomeId.Desert) {
+        continue
+      }
+
+      const chance =
+        biome === BiomeId.Forest
+          ? 0.06
+          : biome === BiomeId.Swamp
+            ? 0.045
+            : 0.02
 
       const seed = hash2(worldX, worldZ, 17)
-      if (seed > 0.038) {
+      if (seed > chance) {
         continue
       }
 
@@ -49,11 +61,25 @@ function addTrees(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
       }
 
       const topBlock = blocks[toIndex(x, groundY, z)]
-      if (topBlock !== BlockId.Dirt) {
+      if (
+        (biome === BiomeId.Forest || biome === BiomeId.Swamp) &&
+        topBlock !== BlockId.Dirt
+      ) {
         continue
       }
 
-      const trunkHeight = 3 + Math.floor(hash2(worldX, worldZ, 41) * 3)
+      if (biome === BiomeId.Snow && topBlock !== BlockId.Snow && topBlock !== BlockId.Dirt) {
+        continue
+      }
+
+      const heightNoiseA = hash2(worldX, worldZ, 41)
+      const heightNoiseB = hash2(worldX, worldZ, 73)
+      const extraTallBonus = heightNoiseB > 0.82 ? 1 : 0
+      const trunkBase = biome === BiomeId.Forest ? 4 : biome === BiomeId.Swamp ? 3 : 4
+      const trunkRange = biome === BiomeId.Forest ? 4 : biome === BiomeId.Swamp ? 3 : 2
+      const trunkHeight = trunkBase + Math.floor(heightNoiseA * trunkRange) + extraTallBonus
+      const canopyRadius = biome === BiomeId.Swamp ? 3 : 2
+      const canopyDistanceLimit = biome === BiomeId.Swamp ? 5 : 4
 
       for (let y = 1; y <= trunkHeight; y += 1) {
         setIfAir(blocks, x, groundY + y, z, BlockId.Log)
@@ -61,10 +87,10 @@ function addTrees(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
 
       const canopyY = groundY + trunkHeight
       for (let oy = -2; oy <= 2; oy += 1) {
-        for (let oz = -2; oz <= 2; oz += 1) {
-          for (let ox = -2; ox <= 2; ox += 1) {
+        for (let oz = -canopyRadius; oz <= canopyRadius; oz += 1) {
+          for (let ox = -canopyRadius; ox <= canopyRadius; ox += 1) {
             const distance = Math.abs(ox) + Math.abs(oz) + Math.max(0, oy)
-            if (distance > 4) {
+            if (distance > canopyDistanceLimit) {
               continue
             }
 
@@ -102,14 +128,15 @@ function generateChunkBlocks(chunkX: number, chunkZ: number): Uint8Array {
         }
       }
 
-      if (height < SEA_LEVEL) {
-        const cold = isColdAt(worldX, worldZ)
-        for (let y = height + 1; y <= SEA_LEVEL && y < CHUNK_HEIGHT; y += 1) {
-          const index = toIndex(x, y, z)
-          if (blocks[index] === BlockId.Air) {
-            const topWater = y === SEA_LEVEL
-            blocks[index] = topWater && cold ? BlockId.Ice : BlockId.Water
-          }
+      for (let y = height + 1; y < CHUNK_HEIGHT; y += 1) {
+        const fluid = getFluidBlockAt(worldX, worldZ, y, height)
+        if (fluid === BlockId.Air) {
+          break
+        }
+
+        const index = toIndex(x, y, z)
+        if (blocks[index] === BlockId.Air) {
+          blocks[index] = fluid
         }
       }
     }
