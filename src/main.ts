@@ -6,6 +6,7 @@ import { ChunkManager } from './world/chunkManager'
 import { WorldStorage } from './storage/worldStorage'
 import { GooeyMobSystem } from './mobs/simpleMobSystem'
 import { SoundSystem } from './audio/soundSystem'
+import { getBiomeAt } from './world/terrainMath'
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -786,6 +787,8 @@ function updateHud() {
       ? `Status: Invulnerable ${(playerHurtCooldown).toFixed(1)}s`
       : 'Status: Ready'
   const modeText = mobsEnabled ? 'With Mobs' : 'Peaceful'
+  const biome = getBiomeAt(Math.floor(position.x), Math.floor(position.z))
+  const biomeText = biome.charAt(0).toUpperCase() + biome.slice(1)
 
   hud.innerHTML = [
     'Milestone 2 complete: worker chunk streaming',
@@ -795,6 +798,7 @@ function updateHud() {
     'Milestone 6 in progress: lighting + gooey mobs',
     `Position x:${position.x.toFixed(1)} y:${position.y.toFixed(1)} z:${position.z.toFixed(1)}`,
     `Chunk x:${currentChunk.x} z:${currentChunk.z} | Loaded: ${loadedChunks} | Pending: ${pendingChunks} | Saved: ${savedChunkCount} | Chunk size: ${CHUNK_SIZE}`,
+    `Biome: ${biomeText}`,
     `Time of day: ${timeText}`,
     `Mode: ${modeText}`,
     `Health: ${Math.floor(playerHealth)} | Gooeys: ${mobStats.alive}/${mobStats.total} | Chasing: ${mobStats.chasing}`,
@@ -892,6 +896,7 @@ function updateLighting(delta: number): void {
 
   skyColor.lerpColors(skyNightColor, skyDayColor, dayFactor)
   fogColor.lerpColors(fogNightColor, fogDayColor, dayFactor)
+
   renderer.setClearColor(skyColor)
   sceneFog.color.copy(fogColor)
   worldFogNear = THREE.MathUtils.lerp(FOG_NEAR_NIGHT, FOG_NEAR_DAY, dayFactor)

@@ -12,6 +12,13 @@ Place your custom block textures in this folder using these filenames:
 - `sand.png`
 - `snow.png`
 - `ice.png`
+- `swamp_grass.png`
+- `swamp_log_side.png`
+- `swamp_log_top.png`
+- `swamp_leaves.png`
+- `cactus_side.png`
+- `cactus_top.png`
+- `swamp_reed.png`
 
 Gooey mob textures (optional):
 

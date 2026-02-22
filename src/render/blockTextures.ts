@@ -11,6 +11,13 @@ type TextureSet = {
   sand: THREE.Texture
   snow: THREE.Texture
   ice: THREE.Texture
+  swampGrass: THREE.Texture
+  swampLogSide: THREE.Texture
+  swampLogTop: THREE.Texture
+  swampLeaves: THREE.Texture
+  cactusSide: THREE.Texture
+  cactusTop: THREE.Texture
+  swampReed: THREE.Texture
 }
 
 const SIZE = 16
@@ -186,6 +193,91 @@ export function createBlockTextures(): TextureSet {
     return '#98d4f3'
   })
 
+  const swampGrass = createTextureWithExternalOverride(texturePath('swamp_grass.png'), (x, y) => {
+    const n = noise(x, y, 187)
+    if (n < 0.18) {
+      return '#4a6035'
+    }
+    if (n > 0.86) {
+      return '#75915a'
+    }
+    return '#617b46'
+  })
+
+  const swampLogSide = createTextureWithExternalOverride(texturePath('swamp_log_side.png'), (x, y) => {
+    const band = (Math.sin(x * 0.8) + 1) * 0.5
+    const n = noise(x, y, 193)
+    if (band > 0.72 || n > 0.88) {
+      return '#7e6a45'
+    }
+    if (band < 0.2 || n < 0.12) {
+      return '#4f412c'
+    }
+    return '#665436'
+  })
+
+  const swampLogTop = createTextureWithExternalOverride(texturePath('swamp_log_top.png'), (x, y) => {
+    const cx = x - SIZE / 2 + 0.5
+    const cy = y - SIZE / 2 + 0.5
+    const ring = Math.sin(Math.hypot(cx, cy) * 1.35)
+    const n = noise(x, y, 199)
+    if (ring > 0.55 || n > 0.9) {
+      return '#897351'
+    }
+    if (ring < -0.4 || n < 0.12) {
+      return '#53432f'
+    }
+    return '#6c593c'
+  })
+
+  const swampLeaves = createTextureWithExternalOverride(texturePath('swamp_leaves.png'), (x, y) => {
+    const n = noise(x, y, 223)
+    if (n < 0.15) {
+      return '#4f653e'
+    }
+    if (n > 0.86) {
+      return '#7d9461'
+    }
+    return '#657e4d'
+  })
+
+  const cactusSide = createTextureWithExternalOverride(texturePath('cactus_side.png'), (x, y) => {
+    const n = noise(x, y, 241)
+    const stripe = Math.sin(x * 1.15)
+    if (stripe > 0.72 || n > 0.9) {
+      return '#7eb05a'
+    }
+    if (stripe < -0.6 || n < 0.14) {
+      return '#447b35'
+    }
+    return '#5f9646'
+  })
+
+  const cactusTop = createTextureWithExternalOverride(texturePath('cactus_top.png'), (x, y) => {
+    const cx = x - SIZE / 2 + 0.5
+    const cy = y - SIZE / 2 + 0.5
+    const edge = Math.max(Math.abs(cx), Math.abs(cy))
+    const n = noise(x, y, 251)
+    if (edge > 6.2) {
+      return '#3f7133'
+    }
+    if (n > 0.86) {
+      return '#7fb65f'
+    }
+    return '#5d9848'
+  })
+
+  const swampReed = createTextureWithExternalOverride(texturePath('swamp_reed.png'), (x, y) => {
+    const n = noise(x, y, 263)
+    if (n < 0.2) {
+      return '#6b7e49'
+    }
+    if (n > 0.84) {
+      return '#8fa467'
+    }
+    return '#7c9157'
+  })
+
   return {
     dirt,
     stone,
@@ -197,5 +289,12 @@ export function createBlockTextures(): TextureSet {
     sand,
     snow,
     ice,
+    swampGrass,
+    swampLogSide,
+    swampLogTop,
+    swampLeaves,
+    cactusSide,
+    cactusTop,
+    swampReed,
   }
 }

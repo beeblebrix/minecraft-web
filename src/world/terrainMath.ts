@@ -9,33 +9,62 @@ export const BiomeId = {
 
 export type BiomeId = (typeof BiomeId)[keyof typeof BiomeId]
 
-export function getBiomeAt(worldX: number, worldZ: number): BiomeId {
+export type BiomeBlend = {
+  forest: number
+  snow: number
+  desert: number
+  swamp: number
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
+}
+
+function sampleClimate(worldX: number, worldZ: number): { temperature: number; moisture: number } {
   const temperature = (Math.sin(worldX * 0.0045) + Math.cos(worldZ * 0.0038) + 2) * 0.25
   const moisture = (Math.cos((worldX + worldZ) * 0.0042) + Math.sin(worldZ * 0.0053) + 2) * 0.25
+  return { temperature, moisture }
+}
 
-  if (temperature > 0.66 && moisture < 0.42) {
+export function getBiomeBlendAt(worldX: number, worldZ: number): BiomeBlend {
+  const { temperature, moisture } = sampleClimate(worldX, worldZ)
+
+  const snow = 1 - smoothstep(0.3, 0.5, temperature)
+  const desert = smoothstep(0.6, 0.8, temperature) * (1 - smoothstep(0.42, 0.63, moisture))
+  const swamp = smoothstep(0.58, 0.82, moisture) * smoothstep(0.35, 0.62, temperature)
+
+  const forestBase = Math.max(0, 1 - Math.max(snow, desert, swamp))
+  const total = forestBase + snow + desert + swamp
+
+  if (total <= 0.0001) {
+    return { forest: 1, snow: 0, desert: 0, swamp: 0 }
+  }
+
+  return {
+    forest: forestBase / total,
+    snow: snow / total,
+    desert: desert / total,
+    swamp: swamp / total,
+  }
+}
+
+export function getBiomeAt(worldX: number, worldZ: number): BiomeId {
+  const blend = getBiomeBlendAt(worldX, worldZ)
+  if (blend.desert >= blend.snow && blend.desert >= blend.swamp && blend.desert >= blend.forest) {
     return BiomeId.Desert
   }
-
-  if (temperature < 0.38) {
+  if (blend.snow >= blend.swamp && blend.snow >= blend.forest) {
     return BiomeId.Snow
   }
-
-  if (moisture > 0.68) {
+  if (blend.swamp >= blend.forest) {
     return BiomeId.Swamp
   }
-
   return BiomeId.Forest
 }
 
 export function getWaterLevelAt(worldX: number, worldZ: number): number {
-  const biome = getBiomeAt(worldX, worldZ)
-
-  if (biome === BiomeId.Swamp) {
-    return SEA_LEVEL + 2
-  }
-
-  if (biome === BiomeId.Desert) {
+  if (getBiomeAt(worldX, worldZ) === BiomeId.Desert) {
     return SEA_LEVEL - 1
   }
 
@@ -76,7 +105,7 @@ export function getTopBlockAt(worldX: number, worldZ: number, height: number): B
   }
 
   if (biome === BiomeId.Swamp) {
-    return BlockId.Dirt
+    return BlockId.SwampGrass
   }
 
   if (biome === BiomeId.Snow && height >= waterLevel + 1) {

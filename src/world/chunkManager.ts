@@ -4,15 +4,14 @@ import {
   CHUNK_HEIGHT,
   CHUNK_SIZE,
   ChunkData,
-  SEA_LEVEL,
   type GenerateChunkRequest,
   type GenerateChunkResponse,
 } from './chunk'
 import {
+  getFluidBlockAt as terrainFluidAt,
   getHeightAt as terrainHeightAt,
   getSubsurfaceBlockAt as terrainSubsurfaceAt,
   getTopBlockAt as terrainTopBlockAt,
-  isColdAt as terrainIsColdAt,
 } from './terrainMath'
 import { raycastVoxel } from './voxelRaycast'
 import { createBlockTextures } from '../render/blockTextures'
@@ -206,6 +205,11 @@ export class ChunkManager {
     let sandCount = 0
     let snowCount = 0
     let iceCount = 0
+    let swampGrassCount = 0
+    let swampLogCount = 0
+    let swampLeavesCount = 0
+    let cactusCount = 0
+    let swampReedCount = 0
     let waterTopCount = 0
     let waterNorthCount = 0
     let waterSouthCount = 0
@@ -257,6 +261,16 @@ export class ChunkManager {
               logCount += 1
             } else if (block === BlockId.Leaves) {
               leavesCount += 1
+            } else if (block === BlockId.SwampGrass) {
+              swampGrassCount += 1
+            } else if (block === BlockId.SwampLog) {
+              swampLogCount += 1
+            } else if (block === BlockId.SwampLeaves) {
+              swampLeavesCount += 1
+            } else if (block === BlockId.Cactus) {
+              cactusCount += 1
+            } else if (block === BlockId.SwampReed) {
+              swampReedCount += 1
             } else if (block === BlockId.Sand) {
               sandCount += 1
             } else if (block === BlockId.Snow) {
@@ -289,7 +303,42 @@ export class ChunkManager {
         materialFromTexture(this.textures.logSide),
       ],
     })
-    const leavesMesh = createChunkLayerMesh(blockGeometry, leavesCount, { map: this.textures.leaves })
+    const leavesMesh = createChunkLayerMesh(blockGeometry, leavesCount, {
+      map: this.textures.leaves,
+      transparent: true,
+      alphaTest: 0.08,
+    })
+    const swampGrassMesh = createChunkLayerMesh(blockGeometry, swampGrassCount, { map: this.textures.swampGrass })
+    const swampLogMesh = createChunkLayerMesh(blockGeometry, swampLogCount, {
+      material: [
+        materialFromTexture(this.textures.swampLogSide),
+        materialFromTexture(this.textures.swampLogSide),
+        materialFromTexture(this.textures.swampLogTop),
+        materialFromTexture(this.textures.swampLogTop),
+        materialFromTexture(this.textures.swampLogSide),
+        materialFromTexture(this.textures.swampLogSide),
+      ],
+    })
+    const swampLeavesMesh = createChunkLayerMesh(blockGeometry, swampLeavesCount, {
+      map: this.textures.swampLeaves,
+      transparent: true,
+      alphaTest: 0.08,
+    })
+    const cactusMesh = createChunkLayerMesh(blockGeometry, cactusCount, {
+      material: [
+        materialFromTexture(this.textures.cactusSide),
+        materialFromTexture(this.textures.cactusSide),
+        materialFromTexture(this.textures.cactusTop),
+        materialFromTexture(this.textures.cactusTop),
+        materialFromTexture(this.textures.cactusSide),
+        materialFromTexture(this.textures.cactusSide),
+      ],
+    })
+    const swampReedMesh = createChunkLayerMesh(blockGeometry, swampReedCount, {
+      map: this.textures.swampReed,
+      transparent: true,
+      alphaTest: 0.05,
+    })
     const sandMesh = createChunkLayerMesh(blockGeometry, sandCount, { map: this.textures.sand })
     const snowMesh = createChunkLayerMesh(blockGeometry, snowCount, { map: this.textures.snow })
     const iceMesh = createChunkLayerMesh(blockGeometry, iceCount, {
@@ -310,13 +359,20 @@ export class ChunkManager {
     const waterSouthMesh = createChunkLayerMesh(waterFaceGeometry, waterSouthCount, waterMaterialOptions)
     const waterWestMesh = createChunkLayerMesh(waterFaceGeometry, waterWestCount, waterMaterialOptions)
     const waterEastMesh = createChunkLayerMesh(waterFaceGeometry, waterEastCount, waterMaterialOptions)
-    const dirtTopCapMesh = createChunkLayerMesh(topCapGeometry, dirtTopCapCount, { map: this.textures.grassTop })
+    const dirtTopCapMesh = createChunkLayerMesh(topCapGeometry, dirtTopCapCount, {
+      map: this.textures.grassTop,
+    })
 
     chunkGroup.add(
       dirtMesh,
       stoneMesh,
       logMesh,
       leavesMesh,
+      swampGrassMesh,
+      swampLogMesh,
+      swampLeavesMesh,
+      cactusMesh,
+      swampReedMesh,
       sandMesh,
       snowMesh,
       iceMesh,
@@ -344,6 +400,11 @@ export class ChunkManager {
     let sandIndex = 0
     let snowIndex = 0
     let iceIndex = 0
+    let swampGrassIndex = 0
+    let swampLogIndex = 0
+    let swampLeavesIndex = 0
+    let cactusIndex = 0
+    let swampReedIndex = 0
     let waterTopIndex = 0
     let waterNorthIndex = 0
     let waterSouthIndex = 0
@@ -422,6 +483,21 @@ export class ChunkManager {
           } else if (block === BlockId.Leaves) {
             leavesMesh.setMatrixAt(leavesIndex, matrix)
             leavesIndex += 1
+          } else if (block === BlockId.SwampGrass) {
+            swampGrassMesh.setMatrixAt(swampGrassIndex, matrix)
+            swampGrassIndex += 1
+          } else if (block === BlockId.SwampLog) {
+            swampLogMesh.setMatrixAt(swampLogIndex, matrix)
+            swampLogIndex += 1
+          } else if (block === BlockId.SwampLeaves) {
+            swampLeavesMesh.setMatrixAt(swampLeavesIndex, matrix)
+            swampLeavesIndex += 1
+          } else if (block === BlockId.Cactus) {
+            cactusMesh.setMatrixAt(cactusIndex, matrix)
+            cactusIndex += 1
+          } else if (block === BlockId.SwampReed) {
+            swampReedMesh.setMatrixAt(swampReedIndex, matrix)
+            swampReedIndex += 1
           } else if (block === BlockId.Sand) {
             sandMesh.setMatrixAt(sandIndex, matrix)
             sandIndex += 1
@@ -447,6 +523,11 @@ export class ChunkManager {
     stoneMesh.count = stoneIndex
     logMesh.count = logIndex
     leavesMesh.count = leavesIndex
+    swampGrassMesh.count = swampGrassIndex
+    swampLogMesh.count = swampLogIndex
+    swampLeavesMesh.count = swampLeavesIndex
+    cactusMesh.count = cactusIndex
+    swampReedMesh.count = swampReedIndex
     sandMesh.count = sandIndex
     snowMesh.count = snowIndex
     iceMesh.count = iceIndex
@@ -461,6 +542,11 @@ export class ChunkManager {
     stoneMesh.instanceMatrix.needsUpdate = true
     logMesh.instanceMatrix.needsUpdate = true
     leavesMesh.instanceMatrix.needsUpdate = true
+    swampGrassMesh.instanceMatrix.needsUpdate = true
+    swampLogMesh.instanceMatrix.needsUpdate = true
+    swampLeavesMesh.instanceMatrix.needsUpdate = true
+    cactusMesh.instanceMatrix.needsUpdate = true
+    swampReedMesh.instanceMatrix.needsUpdate = true
     sandMesh.instanceMatrix.needsUpdate = true
     snowMesh.instanceMatrix.needsUpdate = true
     iceMesh.instanceMatrix.needsUpdate = true
@@ -796,11 +882,7 @@ export class ChunkManager {
       return terrainSubsurfaceAt(worldX, worldZ, y, height)
     }
 
-    if (y <= SEA_LEVEL) {
-      return y === SEA_LEVEL && terrainIsColdAt(worldX, worldZ) ? BlockId.Ice : BlockId.Water
-    }
-
-    return BlockId.Air
+    return terrainFluidAt(worldX, worldZ, y, height)
   }
 
   private getBlockAtForMeshing(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): BlockId {
@@ -845,6 +927,7 @@ function createChunkLayerMesh(
     color?: number
     transparent?: boolean
     opacity?: number
+    alphaTest?: number
     depthWrite?: boolean
     side?: THREE.Side
     material?: THREE.Material | THREE.Material[]
@@ -857,6 +940,7 @@ function createChunkLayerMesh(
       map: materialOptions.map,
       transparent: materialOptions.transparent,
       opacity: materialOptions.opacity,
+      alphaTest: materialOptions.alphaTest,
       depthWrite: materialOptions.depthWrite,
       side: materialOptions.side,
     })
