@@ -19,6 +19,9 @@ Place your custom block textures in this folder using these filenames:
 - `cactus_side.png`
 - `cactus_top.png`
 - `swamp_reed.png`
+- `shrub.png`
+- `tall_grass.png`
+- `sedge.png`
 
 Gooey mob textures (optional):
 

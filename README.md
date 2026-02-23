@@ -67,3 +67,4 @@ Open the local Vite URL and click the canvas to capture the mouse.
 ## Open issues
 
 - Pause resume input can be inconsistent: `Esc` does not always re-capture pointer lock, and click-to-resume appears to only work reliably near the pause dialog region on some setups.
+- Forest/swamp decorative foliage density still appears much lower than configured probabilities in live gameplay; needs deeper investigation into generation/render coverage mismatch.

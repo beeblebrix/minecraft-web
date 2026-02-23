@@ -19,6 +19,9 @@ export const BlockId = {
   SwampLeaves: 12,
   Cactus: 13,
   SwampReed: 14,
+  Shrub: 15,
+  TallGrass: 16,
+  Sedge: 17,
 } as const
 
 export type BlockId = (typeof BlockId)[keyof typeof BlockId]

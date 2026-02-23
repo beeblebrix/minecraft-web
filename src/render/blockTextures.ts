@@ -18,6 +18,9 @@ type TextureSet = {
   cactusSide: THREE.Texture
   cactusTop: THREE.Texture
   swampReed: THREE.Texture
+  shrub: THREE.Texture
+  tallGrass: THREE.Texture
+  sedge: THREE.Texture
 }
 
 const SIZE = 16
@@ -278,6 +281,39 @@ export function createBlockTextures(): TextureSet {
     return '#7c9157'
   })
 
+  const shrub = createTextureWithExternalOverride(texturePath('shrub.png'), (x, y) => {
+    const n = noise(x, y, 277)
+    if (n < 0.18) {
+      return '#2e4f2f'
+    }
+    if (n > 0.84) {
+      return '#456a43'
+    }
+    return '#3a5d39'
+  })
+
+  const tallGrass = createTextureWithExternalOverride(texturePath('tall_grass.png'), (x, y) => {
+    const n = noise(x, y, 283)
+    if (n < 0.2) {
+      return '#4f7e3f'
+    }
+    if (n > 0.85) {
+      return '#79ab59'
+    }
+    return '#64984b'
+  })
+
+  const sedge = createTextureWithExternalOverride(texturePath('sedge.png'), (x, y) => {
+    const n = noise(x, y, 293)
+    if (n < 0.2) {
+      return '#355733'
+    }
+    if (n > 0.85) {
+      return '#52774a'
+    }
+    return '#44693f'
+  })
+
   return {
     dirt,
     stone,
@@ -296,5 +332,8 @@ export function createBlockTextures(): TextureSet {
     cactusSide,
     cactusTop,
     swampReed,
+    shrub,
+    tallGrass,
+    sedge,
   }
 }

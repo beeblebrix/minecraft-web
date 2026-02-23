@@ -16,6 +16,17 @@ if (!app) {
 
 app.innerHTML = `
   <div class="debug-hint" id="debug-hint">F3: Show Debug</div>
+  <div class="time-debug" id="time-debug">
+    <div class="time-debug-row">
+      <label for="time-slider">Time of day</label>
+      <span id="time-label">06:00</span>
+    </div>
+    <input id="time-slider" type="range" min="0" max="1" step="0.001" value="0.25" />
+    <label class="time-freeze">
+      <input id="time-freeze" type="checkbox" />
+      Freeze cycle
+    </label>
+  </div>
   <div class="hud" id="hud"></div>
   <div class="overlay" id="overlay">
     <div class="overlay-panel">
@@ -26,6 +37,8 @@ app.innerHTML = `
     </div>
   </div>
   <div class="crosshair" aria-hidden="true"></div>
+  <div class="sun-haze" id="sun-haze" aria-hidden="true"></div>
+  <div class="moon-haze" id="moon-haze" aria-hidden="true"></div>
   <div class="underwater-filter" id="underwater-filter" aria-hidden="true"></div>
   <div class="hotbar" id="hotbar"></div>
   <div class="inventory-screen" id="inventory-screen">
@@ -48,9 +61,15 @@ app.innerHTML = `
 
 const hudNode = document.querySelector<HTMLDivElement>('#hud')
 const debugHintNode = document.querySelector<HTMLDivElement>('#debug-hint')
+const timeDebugNode = document.querySelector<HTMLDivElement>('#time-debug')
+const timeSliderNode = document.querySelector<HTMLInputElement>('#time-slider')
+const timeLabelNode = document.querySelector<HTMLSpanElement>('#time-label')
+const timeFreezeNode = document.querySelector<HTMLInputElement>('#time-freeze')
 const overlayNode = document.querySelector<HTMLDivElement>('#overlay')
 const hotbarNode = document.querySelector<HTMLDivElement>('#hotbar')
 const crosshairNode = document.querySelector<HTMLDivElement>('.crosshair')
+const sunHazeNode = document.querySelector<HTMLDivElement>('#sun-haze')
+const moonHazeNode = document.querySelector<HTMLDivElement>('#moon-haze')
 const underwaterFilterNode = document.querySelector<HTMLDivElement>('#underwater-filter')
 const inventoryScreenNode = document.querySelector<HTMLDivElement>('#inventory-screen')
 const craftGridNode = document.querySelector<HTMLDivElement>('#craft-grid')
@@ -62,9 +81,15 @@ const inventoryGridNode = document.querySelector<HTMLDivElement>('#inventory-gri
 if (
   !hudNode ||
   !debugHintNode ||
+  !timeDebugNode ||
+  !timeSliderNode ||
+  !timeLabelNode ||
+  !timeFreezeNode ||
   !overlayNode ||
   !hotbarNode ||
   !crosshairNode ||
+  !sunHazeNode ||
+  !moonHazeNode ||
   !underwaterFilterNode ||
   !inventoryScreenNode ||
   !craftGridNode ||
@@ -78,9 +103,15 @@ if (
 
 const hud = hudNode
 const debugHint = debugHintNode
+const timeDebug = timeDebugNode
+const timeSlider = timeSliderNode
+const timeLabel = timeLabelNode
+const timeFreeze = timeFreezeNode
 const overlay = overlayNode
 const hotbar = hotbarNode
 const crosshair = crosshairNode
+const sunHaze = sunHazeNode
+const moonHaze = moonHazeNode
 const underwaterFilter = underwaterFilterNode
 const inventoryScreen = inventoryScreenNode
 const craftGrid = craftGridNode
@@ -107,6 +138,10 @@ const FOG_NEAR_DAY = 24
 const FOG_FAR_DAY = 110
 const FOG_NEAR_NIGHT = 18
 const FOG_FAR_NIGHT = 80
+const HEIGHT_HAZE_TOP = 40
+const HEIGHT_HAZE_BOTTOM = -4
+const SHADOW_RANGE = 52
+const SKY_BODY_DISTANCE = 185
 const PLAYER_MAX_HEALTH = 100
 const PLAYER_HURT_COOLDOWN = 0.75
 const PLAYER_RESPAWN_SECONDS = 2.5
@@ -496,6 +531,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.toneMapping = THREE.NoToneMapping
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
 app.append(renderer.domElement)
 
 const scene = new THREE.Scene()
@@ -509,7 +547,86 @@ scene.add(hemisphereLight)
 
 const sunlight = new THREE.DirectionalLight(0xfff6de, 0.8)
 sunlight.position.set(45, 80, 25)
+sunlight.castShadow = true
+sunlight.shadow.mapSize.set(2048, 2048)
+sunlight.shadow.camera.near = 1
+sunlight.shadow.camera.far = 260
+sunlight.shadow.camera.left = -SHADOW_RANGE
+sunlight.shadow.camera.right = SHADOW_RANGE
+sunlight.shadow.camera.top = SHADOW_RANGE
+sunlight.shadow.camera.bottom = -SHADOW_RANGE
+sunlight.shadow.bias = -0.00014
+sunlight.shadow.normalBias = 0.35
+sunlight.shadow.radius = 2
+scene.add(sunlight.target)
 scene.add(sunlight)
+
+const moonlight = new THREE.DirectionalLight(0xb4c9ff, 0.1)
+moonlight.position.set(-45, 70, -25)
+moonlight.castShadow = true
+moonlight.shadow.mapSize.set(1024, 1024)
+moonlight.shadow.camera.near = 1
+moonlight.shadow.camera.far = 260
+moonlight.shadow.camera.left = -SHADOW_RANGE
+moonlight.shadow.camera.right = SHADOW_RANGE
+moonlight.shadow.camera.top = SHADOW_RANGE
+moonlight.shadow.camera.bottom = -SHADOW_RANGE
+moonlight.shadow.bias = -0.00016
+moonlight.shadow.normalBias = 0.3
+moonlight.shadow.radius = 2
+scene.add(moonlight.target)
+scene.add(moonlight)
+
+const sunDiskMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffefb3,
+  transparent: true,
+  opacity: 1,
+  depthWrite: false,
+  fog: false,
+})
+const sunGlowTexture = createSunGlowTexture()
+const sunGlowMaterial = new THREE.SpriteMaterial({
+  map: sunGlowTexture,
+  color: 0xffd98a,
+  transparent: true,
+  opacity: 0.35,
+  depthWrite: false,
+  depthTest: true,
+  fog: false,
+  blending: THREE.AdditiveBlending,
+})
+const moonDiskMaterial = new THREE.MeshBasicMaterial({
+  color: 0xd4defa,
+  transparent: true,
+  opacity: 0.9,
+  depthWrite: false,
+  fog: false,
+})
+const moonGlowTexture = createMoonGlowTexture()
+const moonGlowMaterial = new THREE.SpriteMaterial({
+  map: moonGlowTexture,
+  color: 0xb8cbff,
+  transparent: true,
+  opacity: 0.24,
+  depthWrite: false,
+  depthTest: true,
+  fog: false,
+  blending: THREE.AdditiveBlending,
+})
+const sunDisk = new THREE.Mesh(new THREE.SphereGeometry(19.5, 22, 22), sunDiskMaterial)
+const sunGlow = new THREE.Sprite(sunGlowMaterial)
+const moonDisk = new THREE.Mesh(new THREE.SphereGeometry(9.6, 18, 18), moonDiskMaterial)
+const moonGlow = new THREE.Sprite(moonGlowMaterial)
+sunDisk.frustumCulled = false
+sunGlow.frustumCulled = false
+moonDisk.frustumCulled = false
+moonGlow.frustumCulled = false
+sunGlow.scale.set(115, 115, 1)
+moonGlow.scale.set(68, 68, 1)
+scene.add(sunDisk)
+scene.add(sunGlow)
+scene.add(moonDisk)
+scene.add(moonGlow)
 
 const skyDayColor = new THREE.Color(0x8fc9ff)
 const skyNightColor = new THREE.Color(0x0d1424)
@@ -518,13 +635,31 @@ const skyColor = new THREE.Color()
 const fogDayColor = new THREE.Color(0xa8dcff)
 const fogNightColor = new THREE.Color(0x101624)
 const fogColor = new THREE.Color()
+const lowAltitudeHazeDay = new THREE.Color(0xc5e6cd)
+const lowAltitudeHazeNight = new THREE.Color(0x192232)
+const lowAltitudeHazeColor = new THREE.Color()
 const underwaterFogColor = new THREE.Color(0x2b6ea6)
+const sunScreen = new THREE.Vector3()
+const moonScreen = new THREE.Vector3()
+const sunRayDirection = new THREE.Vector3()
+const moonRayDirection = new THREE.Vector3()
 
 let worldFogNear = FOG_NEAR_DAY
 let worldFogFar = FOG_FAR_DAY
 
 const sunDayColor = new THREE.Color(0xfff6de)
 const sunTwilightColor = new THREE.Color(0xffb576)
+const sunDiskDayColor = new THREE.Color(0xfff4dc)
+const sunDiskTwilightColor = new THREE.Color(0xff9b66)
+const sunGlowDayColor = new THREE.Color(0xffdfa0)
+const sunGlowTwilightColor = new THREE.Color(0xff8b52)
+const sunRayDayColor = new THREE.Color(0xffecc1)
+const sunRayTwilightColor = new THREE.Color(0xffa166)
+const sunDiskTint = new THREE.Color()
+const sunGlowTint = new THREE.Color()
+const sunRayTint = new THREE.Color()
+const moonNightColor = new THREE.Color(0xb6cbff)
+const moonTwilightColor = new THREE.Color(0x8da4cf)
 
 let timeOfDay = 0.25
 let playerHealth = PLAYER_MAX_HEALTH
@@ -538,6 +673,9 @@ let gameStarted = false
 let mobsEnabled = true
 let wasGrounded = false
 let lastOverlayStateKey = ''
+let sunHazeOpacity = 0
+let moonHazeOpacity = 0
+let timeCyclePaused = false
 
 const soundSystem = new SoundSystem()
 soundSystem.bindUnlockEvents()
@@ -566,6 +704,8 @@ try {
 storageReady = true
 updateHotbar()
 renderInventoryGrid()
+timeDebug.style.display = 'none'
+syncTimeDebugControls()
 
 const chunkManager = new ChunkManager(VIEW_DISTANCE_IN_CHUNKS, {
   savedChunks,
@@ -642,7 +782,11 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
     debugHudVisible = !debugHudVisible
     hud.style.display = debugHudVisible ? 'block' : 'none'
+    updateTimeDebugVisibility()
     debugHint.textContent = debugHudVisible ? 'F3: Hide Debug' : 'F3: Show Debug'
+    if (debugHudVisible && !controller.isPointerLocked) {
+      syncTimeDebugControls()
+    }
     return
   }
 
@@ -764,9 +908,7 @@ function updateHud() {
   const pendingChunks = chunkManager.getPendingChunkCount()
   const savedChunkCount = chunkManager.getSavedChunkCount()
   const slot = HOTBAR_SLOTS[selectedSlotIndex]
-  const hour24 = Math.floor(timeOfDay * 24)
-  const minute = Math.floor((timeOfDay * 24 - hour24) * 60)
-  const timeText = `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+  const timeText = formatTimeOfDay(timeOfDay)
 
   camera.getWorldDirection(lookDirection)
   const targetedBlock = chunkManager.raycastBlock(camera.position, lookDirection, 8)
@@ -807,6 +949,31 @@ function updateHud() {
     targetText,
     `Pointer ${lockHint} | WASD move | Space jump | Shift sprint | LMB attack/break | RMB place | Wheel/1-3 select | E inventory | K test death | Esc toggle pause`,
   ].join('<br/>')
+}
+
+function formatTimeOfDay(value: number): string {
+  const wrapped = ((value % 1) + 1) % 1
+  const hour24 = Math.floor(wrapped * 24)
+  const minute = Math.floor((wrapped * 24 - hour24) * 60)
+  return `${hour24.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`
+}
+
+function toRgbTripletString(color: THREE.Color): string {
+  const r = Math.round(THREE.MathUtils.clamp(color.r, 0, 1) * 255)
+  const g = Math.round(THREE.MathUtils.clamp(color.g, 0, 1) * 255)
+  const b = Math.round(THREE.MathUtils.clamp(color.b, 0, 1) * 255)
+  return `${r} ${g} ${b}`
+}
+
+function syncTimeDebugControls(): void {
+  timeSlider.value = timeOfDay.toFixed(3)
+  timeLabel.textContent = formatTimeOfDay(timeOfDay)
+  timeFreeze.checked = timeCyclePaused
+}
+
+function updateTimeDebugVisibility(): void {
+  const showInPause = debugHudVisible && gameStarted && !playerDead && !controller.isPointerLocked && !inventoryOpen
+  timeDebug.style.display = showInPause ? 'block' : 'none'
 }
 
 function updateOverlay(): void {
@@ -887,7 +1054,9 @@ function triggerPlayerDeathForTesting(): void {
 }
 
 function updateLighting(delta: number): void {
-  timeOfDay = (timeOfDay + delta / DAY_LENGTH_SECONDS) % 1
+  if (!timeCyclePaused) {
+    timeOfDay = (timeOfDay + delta / DAY_LENGTH_SECONDS) % 1
+  }
 
   const sunAngle = timeOfDay * Math.PI * 2
   const sunElevation = Math.sin(sunAngle)
@@ -896,28 +1065,80 @@ function updateLighting(delta: number): void {
 
   skyColor.lerpColors(skyNightColor, skyDayColor, dayFactor)
   fogColor.lerpColors(fogNightColor, fogDayColor, dayFactor)
+  lowAltitudeHazeColor.lerpColors(lowAltitudeHazeNight, lowAltitudeHazeDay, dayFactor)
+
+  const heightProgress = THREE.MathUtils.smoothstep(controller.position.y, HEIGHT_HAZE_BOTTOM, HEIGHT_HAZE_TOP)
+  const heightFogFactor = 1 - heightProgress
 
   renderer.setClearColor(skyColor)
-  sceneFog.color.copy(fogColor)
+  sceneFog.color.copy(fogColor).lerp(lowAltitudeHazeColor, heightFogFactor * 0.42)
   worldFogNear = THREE.MathUtils.lerp(FOG_NEAR_NIGHT, FOG_NEAR_DAY, dayFactor)
   worldFogFar = THREE.MathUtils.lerp(FOG_FAR_NIGHT, FOG_FAR_DAY, dayFactor)
-  sceneFog.near = worldFogNear
-  sceneFog.far = worldFogFar
+  sceneFog.near = worldFogNear * THREE.MathUtils.lerp(1, 0.78, heightFogFactor)
+  sceneFog.far = worldFogFar * THREE.MathUtils.lerp(1, 0.72, heightFogFactor)
 
   hemisphereLight.intensity = 0.15 + dayFactor * 0.95
   hemisphereLight.color.copy(skyColor)
   hemisphereLight.groundColor.setRGB(0.2 + dayFactor * 0.25, 0.18 + dayFactor * 0.2, 0.18 + dayFactor * 0.12)
 
-  sunlight.intensity = 0.05 + Math.max(0, sunElevation) * 1.1 + twilightFactor * 0.25
+  const moonElevation = -sunElevation
+  const moonFactor = THREE.MathUtils.smoothstep(moonElevation, -0.18, 0.35)
+
+  sunlight.intensity = 0.04 + Math.max(0, sunElevation) * 1.05 + twilightFactor * 0.22
   sunlight.color.lerpColors(sunTwilightColor, sunDayColor, dayFactor)
+  sunDiskTint.lerpColors(sunDiskTwilightColor, sunDiskDayColor, dayFactor)
+  sunGlowTint.lerpColors(sunGlowTwilightColor, sunGlowDayColor, dayFactor)
+  sunRayTint.lerpColors(sunRayTwilightColor, sunRayDayColor, dayFactor)
+  sunDiskMaterial.color.copy(sunDiskTint)
+  sunGlowMaterial.color.copy(sunGlowTint)
+  sunHaze.style.setProperty('--sun-core-rgb', toRgbTripletString(sunRayTint))
+  sunHaze.style.setProperty('--sun-ray-rgb', toRgbTripletString(sunGlowTint))
+
+  moonlight.intensity = 0.02 + moonFactor * 0.2
+  moonlight.color.lerpColors(moonTwilightColor, moonNightColor, moonFactor)
 
   const azimuth = sunAngle * 0.35
   const radius = 140
+  const moonAzimuth = azimuth + Math.PI
   sunlight.position.set(
-    Math.cos(azimuth) * radius,
+    controller.position.x + Math.cos(azimuth) * radius,
     18 + sunElevation * 90,
-    Math.sin(azimuth) * radius,
+    controller.position.z + Math.sin(azimuth) * radius,
   )
+  sunlight.target.position.set(controller.position.x, controller.position.y, controller.position.z)
+
+  moonlight.position.set(
+    controller.position.x + Math.cos(moonAzimuth) * radius,
+    18 + moonElevation * 90,
+    controller.position.z + Math.sin(moonAzimuth) * radius,
+  )
+  moonlight.target.position.set(controller.position.x, controller.position.y, controller.position.z)
+
+  const shadowBlend = dayFactor >= moonFactor
+  sunlight.castShadow = shadowBlend && dayFactor > 0.05
+  moonlight.castShadow = !shadowBlend && moonFactor > 0.05
+
+  sunDisk.position.set(
+    controller.position.x + Math.cos(azimuth) * SKY_BODY_DISTANCE,
+    30 + sunElevation * 120,
+    controller.position.z + Math.sin(azimuth) * SKY_BODY_DISTANCE,
+  )
+  sunGlow.position.copy(sunDisk.position)
+  moonDisk.position.set(
+    controller.position.x + Math.cos(moonAzimuth) * SKY_BODY_DISTANCE,
+    30 + moonElevation * 120,
+    controller.position.z + Math.sin(moonAzimuth) * SKY_BODY_DISTANCE,
+  )
+  moonGlow.position.copy(moonDisk.position)
+
+  sunDisk.visible = sunElevation > -0.24
+  sunGlow.visible = sunDisk.visible
+  moonDisk.visible = moonElevation > -0.24
+  moonGlow.visible = moonDisk.visible
+  sunDiskMaterial.opacity = THREE.MathUtils.lerp(0.45, 1, dayFactor)
+  sunGlowMaterial.opacity = THREE.MathUtils.lerp(0.08, 0.42, dayFactor)
+  moonDiskMaterial.opacity = THREE.MathUtils.lerp(0.35, 0.92, moonFactor)
+  moonGlowMaterial.opacity = THREE.MathUtils.lerp(0.06, 0.28, moonFactor)
 }
 
 function updateUnderwaterEffects(): void {
@@ -930,6 +1151,126 @@ function updateUnderwaterEffects(): void {
     underwaterFilter.style.opacity = '0'
   }
 }
+
+function createSunGlowTexture(): THREE.CanvasTexture {
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) {
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.needsUpdate = true
+    return texture
+  }
+
+  const center = size / 2
+  const gradient = context.createRadialGradient(center, center, 0, center, center, center)
+  gradient.addColorStop(0, 'rgba(255, 250, 220, 0.95)')
+  gradient.addColorStop(0.18, 'rgba(255, 236, 180, 0.72)')
+  gradient.addColorStop(0.45, 'rgba(255, 213, 138, 0.3)')
+  gradient.addColorStop(0.78, 'rgba(255, 196, 114, 0.08)')
+  gradient.addColorStop(1, 'rgba(255, 196, 114, 0)')
+
+  context.fillStyle = gradient
+  context.fillRect(0, 0, size, size)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+  return texture
+}
+
+function createMoonGlowTexture(): THREE.CanvasTexture {
+  const size = 256
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const context = canvas.getContext('2d')
+  if (!context) {
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.needsUpdate = true
+    return texture
+  }
+
+  const center = size / 2
+  const gradient = context.createRadialGradient(center, center, 0, center, center, center)
+  gradient.addColorStop(0, 'rgba(232, 242, 255, 0.86)')
+  gradient.addColorStop(0.2, 'rgba(196, 214, 255, 0.58)')
+  gradient.addColorStop(0.48, 'rgba(162, 189, 255, 0.25)')
+  gradient.addColorStop(0.78, 'rgba(140, 168, 235, 0.08)')
+  gradient.addColorStop(1, 'rgba(140, 168, 235, 0)')
+
+  context.fillStyle = gradient
+  context.fillRect(0, 0, size, size)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+  return texture
+}
+
+function updateSunHaze(): void {
+  sunScreen.copy(sunlight.position).project(camera)
+  const nearScreen = sunScreen.z > -1 && sunScreen.z < 1 && Math.abs(sunScreen.x) <= 1.6 && Math.abs(sunScreen.y) <= 1.6
+  const sunElevation = sunlight.position.y
+  const lowSunBoost = 1 - THREE.MathUtils.smoothstep(sunElevation, 10, 56)
+  const midDayBase = 1 - THREE.MathUtils.smoothstep(sunElevation, 70, 130)
+  const elevationFactor = Math.max(lowSunBoost, midDayBase * 0.45)
+  const sunDistance = camera.position.distanceTo(sunDisk.position)
+  let sunOccluded = false
+  if (sunDistance > 0.001) {
+    sunRayDirection.copy(sunDisk.position).sub(camera.position).normalize()
+    sunOccluded = chunkManager.raycastBlock(camera.position, sunRayDirection, sunDistance - 2) !== null
+  }
+  const targetOpacity = nearScreen && !controller.isFullySubmerged && !sunOccluded ? elevationFactor * 0.55 : 0
+  sunHazeOpacity = THREE.MathUtils.lerp(sunHazeOpacity, targetOpacity, 0.08)
+
+  const x = THREE.MathUtils.clamp((sunScreen.x * 0.5 + 0.5) * 100, -10, 110)
+  const y = THREE.MathUtils.clamp((-sunScreen.y * 0.5 + 0.5) * 100, -10, 110)
+  sunHaze.style.setProperty('--sun-x', `${x.toFixed(2)}%`)
+  sunHaze.style.setProperty('--sun-y', `${y.toFixed(2)}%`)
+  sunHaze.style.opacity = sunHazeOpacity.toFixed(3)
+}
+
+function updateMoonHaze(): void {
+  moonScreen.copy(moonlight.position).project(camera)
+  const nearScreen = moonScreen.z > -1 && moonScreen.z < 1 && Math.abs(moonScreen.x) <= 1.6 && Math.abs(moonScreen.y) <= 1.6
+  const moonHeight = moonlight.position.y
+  const lowMoonBoost = 1 - THREE.MathUtils.smoothstep(moonHeight, 10, 56)
+  const midNightBase = 1 - THREE.MathUtils.smoothstep(moonHeight, 70, 130)
+  const elevationFactor = Math.max(lowMoonBoost, midNightBase * 0.38)
+  const moonDistance = camera.position.distanceTo(moonDisk.position)
+  let moonOccluded = false
+  if (moonDistance > 0.001) {
+    moonRayDirection.copy(moonDisk.position).sub(camera.position).normalize()
+    moonOccluded = chunkManager.raycastBlock(camera.position, moonRayDirection, moonDistance - 2) !== null
+  }
+  const targetOpacity = nearScreen && !controller.isFullySubmerged && !moonOccluded ? elevationFactor * 0.32 : 0
+  moonHazeOpacity = THREE.MathUtils.lerp(moonHazeOpacity, targetOpacity, 0.08)
+
+  const x = THREE.MathUtils.clamp((moonScreen.x * 0.5 + 0.5) * 100, -10, 110)
+  const y = THREE.MathUtils.clamp((-moonScreen.y * 0.5 + 0.5) * 100, -10, 110)
+  moonHaze.style.setProperty('--moon-x', `${x.toFixed(2)}%`)
+  moonHaze.style.setProperty('--moon-y', `${y.toFixed(2)}%`)
+  moonHaze.style.opacity = moonHazeOpacity.toFixed(3)
+}
+
+timeSlider.addEventListener('input', () => {
+  const next = Number(timeSlider.value)
+  if (!Number.isFinite(next)) {
+    return
+  }
+
+  timeOfDay = THREE.MathUtils.euclideanModulo(next, 1)
+  updateLighting(0)
+  syncTimeDebugControls()
+})
+
+timeFreeze.addEventListener('change', () => {
+  timeCyclePaused = timeFreeze.checked
+  syncTimeDebugControls()
+})
 
 function renderLoop() {
   const delta = Math.min(clock.getDelta(), 0.05)
@@ -972,6 +1313,11 @@ function renderLoop() {
   }
 
   updateUnderwaterEffects()
+  updateSunHaze()
+  updateMoonHaze()
+  if (debugHudVisible) {
+    syncTimeDebugControls()
+  }
 
   if (playerDead) {
     playerRespawnTimer = Math.max(0, (playerRespawnAtMs - performance.now()) / 1000)
@@ -990,6 +1336,7 @@ function renderLoop() {
   overlay.style.display = controller.isPointerLocked || inventoryOpen ? 'none' : 'block'
   inventoryScreen.style.display = inventoryOpen ? 'grid' : 'none'
   crosshair.style.display = controller.isPointerLocked ? 'block' : 'none'
+  updateTimeDebugVisibility()
   updateHud()
 
   renderer.render(scene, camera)

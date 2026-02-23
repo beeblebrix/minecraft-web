@@ -8,6 +8,7 @@ import {
   type GenerateChunkResponse,
 } from './chunk'
 import {
+  getBiomeAt as terrainBiomeAt,
   getFluidBlockAt as terrainFluidAt,
   getHeightAt as terrainHeightAt,
   getSubsurfaceBlockAt as terrainSubsurfaceAt,
@@ -129,7 +130,7 @@ export class ChunkManager {
 
   isSolidBlock(worldX: number, y: number, worldZ: number): boolean {
     const block = this.getBlockAtWorld(worldX, y, worldZ)
-    return block !== BlockId.Air && block !== BlockId.Water
+    return block !== BlockId.Air && block !== BlockId.Water && !isPassableFoliage(block)
   }
 
   isWaterBlock(worldX: number, y: number, worldZ: number): boolean {
@@ -166,7 +167,7 @@ export class ChunkManager {
 
   placeBlock(worldX: number, y: number, worldZ: number, block: BlockId): boolean {
     const current = this.getLoadedBlock(worldX, y, worldZ)
-    if (current === null || (current !== BlockId.Air && current !== BlockId.Water)) {
+    if (current === null || (current !== BlockId.Air && current !== BlockId.Water && !isPassableFoliage(current))) {
       return false
     }
 
@@ -210,6 +211,9 @@ export class ChunkManager {
     let swampLeavesCount = 0
     let cactusCount = 0
     let swampReedCount = 0
+    let shrubCount = 0
+    let tallGrassCount = 0
+    let sedgeCount = 0
     let waterTopCount = 0
     let waterNorthCount = 0
     let waterSouthCount = 0
@@ -271,6 +275,8 @@ export class ChunkManager {
               cactusCount += 1
             } else if (block === BlockId.SwampReed) {
               swampReedCount += 1
+            } else if (block === BlockId.Shrub) {
+              shrubCount += 1
             } else if (block === BlockId.Sand) {
               sandCount += 1
             } else if (block === BlockId.Snow) {
@@ -291,8 +297,16 @@ export class ChunkManager {
     const topCapGeometry = new THREE.PlaneGeometry(1, 1)
     const chunkGroup = new THREE.Group()
 
-    const dirtMesh = createChunkLayerMesh(blockGeometry, dirtCount, { map: this.textures.dirt })
-    const stoneMesh = createChunkLayerMesh(blockGeometry, stoneCount, { map: this.textures.stone })
+    const dirtMesh = createChunkLayerMesh(blockGeometry, dirtCount, {
+      map: this.textures.dirt,
+      useInstanceColor: true,
+      castShadow: true,
+    })
+    const stoneMesh = createChunkLayerMesh(blockGeometry, stoneCount, {
+      map: this.textures.stone,
+      useInstanceColor: true,
+      castShadow: true,
+    })
     const logMesh = createChunkLayerMesh(blockGeometry, logCount, {
       material: [
         materialFromTexture(this.textures.logSide),
@@ -302,13 +316,19 @@ export class ChunkManager {
         materialFromTexture(this.textures.logSide),
         materialFromTexture(this.textures.logSide),
       ],
+      useInstanceColor: true,
+      castShadow: true,
     })
     const leavesMesh = createChunkLayerMesh(blockGeometry, leavesCount, {
       map: this.textures.leaves,
       transparent: true,
       alphaTest: 0.08,
     })
-    const swampGrassMesh = createChunkLayerMesh(blockGeometry, swampGrassCount, { map: this.textures.swampGrass })
+    const swampGrassMesh = createChunkLayerMesh(blockGeometry, swampGrassCount, {
+      map: this.textures.swampGrass,
+      useInstanceColor: true,
+      castShadow: true,
+    })
     const swampLogMesh = createChunkLayerMesh(blockGeometry, swampLogCount, {
       material: [
         materialFromTexture(this.textures.swampLogSide),
@@ -318,6 +338,8 @@ export class ChunkManager {
         materialFromTexture(this.textures.swampLogSide),
         materialFromTexture(this.textures.swampLogSide),
       ],
+      useInstanceColor: true,
+      castShadow: true,
     })
     const swampLeavesMesh = createChunkLayerMesh(blockGeometry, swampLeavesCount, {
       map: this.textures.swampLeaves,
@@ -333,18 +355,59 @@ export class ChunkManager {
         materialFromTexture(this.textures.cactusSide),
         materialFromTexture(this.textures.cactusSide),
       ],
+      useInstanceColor: true,
+      castShadow: true,
     })
     const swampReedMesh = createChunkLayerMesh(blockGeometry, swampReedCount, {
       map: this.textures.swampReed,
       transparent: true,
       alphaTest: 0.05,
     })
-    const sandMesh = createChunkLayerMesh(blockGeometry, sandCount, { map: this.textures.sand })
-    const snowMesh = createChunkLayerMesh(blockGeometry, snowCount, { map: this.textures.snow })
+    const shrubMesh = createChunkLayerMesh(blockGeometry, shrubCount, {
+      map: this.textures.shrub,
+      transparent: true,
+      alphaTest: 0.08,
+    })
+    const foliageCrossGeometry = new THREE.PlaneGeometry(1, 1)
+    const foliageMaterialTall = materialFromTexture(this.textures.tallGrass, {
+      transparent: true,
+      alphaTest: 0.08,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+    const foliageMaterialSedge = materialFromTexture(this.textures.sedge, {
+      transparent: true,
+      alphaTest: 0.08,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+    const tallGrassCrossAMesh = createChunkLayerMesh(foliageCrossGeometry, tallGrassCount, {
+      material: foliageMaterialTall,
+    })
+    const tallGrassCrossBMesh = createChunkLayerMesh(foliageCrossGeometry, tallGrassCount, {
+      material: foliageMaterialTall.clone(),
+    })
+    const sedgeCrossAMesh = createChunkLayerMesh(foliageCrossGeometry, sedgeCount, {
+      material: foliageMaterialSedge,
+    })
+    const sedgeCrossBMesh = createChunkLayerMesh(foliageCrossGeometry, sedgeCount, {
+      material: foliageMaterialSedge.clone(),
+    })
+    const sandMesh = createChunkLayerMesh(blockGeometry, sandCount, {
+      map: this.textures.sand,
+      useInstanceColor: true,
+      castShadow: true,
+    })
+    const snowMesh = createChunkLayerMesh(blockGeometry, snowCount, {
+      map: this.textures.snow,
+      useInstanceColor: true,
+      castShadow: true,
+    })
     const iceMesh = createChunkLayerMesh(blockGeometry, iceCount, {
       map: this.textures.ice,
       transparent: true,
       opacity: 0.85,
+      castShadow: true,
     })
     const waterFaceGeometry = new THREE.PlaneGeometry(1, 1)
     const waterMaterialOptions = {
@@ -373,6 +436,11 @@ export class ChunkManager {
       swampLeavesMesh,
       cactusMesh,
       swampReedMesh,
+      shrubMesh,
+      tallGrassCrossAMesh,
+      tallGrassCrossBMesh,
+      sedgeCrossAMesh,
+      sedgeCrossBMesh,
       sandMesh,
       snowMesh,
       iceMesh,
@@ -386,8 +454,12 @@ export class ChunkManager {
 
     const matrix = new THREE.Matrix4()
     const capPosition = new THREE.Vector3()
+    const aoColor = new THREE.Color(1, 1, 1)
     const capRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
+    const foliageCrossARotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 4, 0))
+    const foliageCrossBRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.PI / 4, 0))
     const capScale = new THREE.Vector3(1, 1, 1)
+    const foliageScale = new THREE.Vector3(1.25, 1.25, 1.25)
     const waterTopRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
     const waterNorthRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0))
     const waterSouthRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0))
@@ -405,6 +477,9 @@ export class ChunkManager {
     let swampLeavesIndex = 0
     let cactusIndex = 0
     let swampReedIndex = 0
+    let shrubIndex = 0
+    let tallGrassIndex = 0
+    let sedgeIndex = 0
     let waterTopIndex = 0
     let waterNorthIndex = 0
     let waterSouthIndex = 0
@@ -462,6 +537,26 @@ export class ChunkManager {
             continue
           }
 
+          if (block === BlockId.TallGrass) {
+            capPosition.set(worldX + 0.5, y + 0.5, worldZ + 0.5)
+            matrix.compose(capPosition, foliageCrossARotation, foliageScale)
+            tallGrassCrossAMesh.setMatrixAt(tallGrassIndex, matrix)
+            matrix.compose(capPosition, foliageCrossBRotation, foliageScale)
+            tallGrassCrossBMesh.setMatrixAt(tallGrassIndex, matrix)
+            tallGrassIndex += 1
+            continue
+          }
+
+          if (block === BlockId.Sedge) {
+            capPosition.set(worldX + 0.5, y + 0.5, worldZ + 0.5)
+            matrix.compose(capPosition, foliageCrossARotation, foliageScale)
+            sedgeCrossAMesh.setMatrixAt(sedgeIndex, matrix)
+            matrix.compose(capPosition, foliageCrossBRotation, foliageScale)
+            sedgeCrossBMesh.setMatrixAt(sedgeIndex, matrix)
+            sedgeIndex += 1
+            continue
+          }
+
           const exposed = this.isBlockExposed(worldX, y, worldZ, data, block)
           const topExposed = this.getBlockAtForMeshing(worldX, y + 1, worldZ, data) === BlockId.Air
 
@@ -470,39 +565,52 @@ export class ChunkManager {
           }
 
           matrix.makeTranslation(worldX + 0.5, y + 0.5, worldZ + 0.5)
+          const ao = this.sampleAmbientOcclusion(worldX, y, worldZ, data)
+          aoColor.setRGB(ao, ao, ao)
 
           if (block === BlockId.Dirt || block === BlockId.Grass) {
             dirtMesh.setMatrixAt(dirtIndex, matrix)
+            dirtMesh.setColorAt(dirtIndex, aoColor)
             dirtIndex += 1
           } else if (block === BlockId.Stone) {
             stoneMesh.setMatrixAt(stoneIndex, matrix)
+            stoneMesh.setColorAt(stoneIndex, aoColor)
             stoneIndex += 1
           } else if (block === BlockId.Log) {
             logMesh.setMatrixAt(logIndex, matrix)
+            logMesh.setColorAt(logIndex, aoColor)
             logIndex += 1
           } else if (block === BlockId.Leaves) {
             leavesMesh.setMatrixAt(leavesIndex, matrix)
             leavesIndex += 1
           } else if (block === BlockId.SwampGrass) {
             swampGrassMesh.setMatrixAt(swampGrassIndex, matrix)
+            swampGrassMesh.setColorAt(swampGrassIndex, aoColor)
             swampGrassIndex += 1
           } else if (block === BlockId.SwampLog) {
             swampLogMesh.setMatrixAt(swampLogIndex, matrix)
+            swampLogMesh.setColorAt(swampLogIndex, aoColor)
             swampLogIndex += 1
           } else if (block === BlockId.SwampLeaves) {
             swampLeavesMesh.setMatrixAt(swampLeavesIndex, matrix)
             swampLeavesIndex += 1
           } else if (block === BlockId.Cactus) {
             cactusMesh.setMatrixAt(cactusIndex, matrix)
+            cactusMesh.setColorAt(cactusIndex, aoColor)
             cactusIndex += 1
           } else if (block === BlockId.SwampReed) {
             swampReedMesh.setMatrixAt(swampReedIndex, matrix)
             swampReedIndex += 1
+          } else if (block === BlockId.Shrub) {
+            shrubMesh.setMatrixAt(shrubIndex, matrix)
+            shrubIndex += 1
           } else if (block === BlockId.Sand) {
             sandMesh.setMatrixAt(sandIndex, matrix)
+            sandMesh.setColorAt(sandIndex, aoColor)
             sandIndex += 1
           } else if (block === BlockId.Snow) {
             snowMesh.setMatrixAt(snowIndex, matrix)
+            snowMesh.setColorAt(snowIndex, aoColor)
             snowIndex += 1
           } else if (block === BlockId.Ice) {
             iceMesh.setMatrixAt(iceIndex, matrix)
@@ -528,6 +636,11 @@ export class ChunkManager {
     swampLeavesMesh.count = swampLeavesIndex
     cactusMesh.count = cactusIndex
     swampReedMesh.count = swampReedIndex
+    shrubMesh.count = shrubIndex
+    tallGrassCrossAMesh.count = tallGrassIndex
+    tallGrassCrossBMesh.count = tallGrassIndex
+    sedgeCrossAMesh.count = sedgeIndex
+    sedgeCrossBMesh.count = sedgeIndex
     sandMesh.count = sandIndex
     snowMesh.count = snowIndex
     iceMesh.count = iceIndex
@@ -539,16 +652,45 @@ export class ChunkManager {
     dirtTopCapMesh.count = dirtTopCapIndex
 
     dirtMesh.instanceMatrix.needsUpdate = true
+    if (dirtMesh.instanceColor) {
+      dirtMesh.instanceColor.needsUpdate = true
+    }
     stoneMesh.instanceMatrix.needsUpdate = true
+    if (stoneMesh.instanceColor) {
+      stoneMesh.instanceColor.needsUpdate = true
+    }
     logMesh.instanceMatrix.needsUpdate = true
+    if (logMesh.instanceColor) {
+      logMesh.instanceColor.needsUpdate = true
+    }
     leavesMesh.instanceMatrix.needsUpdate = true
     swampGrassMesh.instanceMatrix.needsUpdate = true
+    if (swampGrassMesh.instanceColor) {
+      swampGrassMesh.instanceColor.needsUpdate = true
+    }
     swampLogMesh.instanceMatrix.needsUpdate = true
+    if (swampLogMesh.instanceColor) {
+      swampLogMesh.instanceColor.needsUpdate = true
+    }
     swampLeavesMesh.instanceMatrix.needsUpdate = true
     cactusMesh.instanceMatrix.needsUpdate = true
+    if (cactusMesh.instanceColor) {
+      cactusMesh.instanceColor.needsUpdate = true
+    }
     swampReedMesh.instanceMatrix.needsUpdate = true
+    shrubMesh.instanceMatrix.needsUpdate = true
+    tallGrassCrossAMesh.instanceMatrix.needsUpdate = true
+    tallGrassCrossBMesh.instanceMatrix.needsUpdate = true
+    sedgeCrossAMesh.instanceMatrix.needsUpdate = true
+    sedgeCrossBMesh.instanceMatrix.needsUpdate = true
     sandMesh.instanceMatrix.needsUpdate = true
+    if (sandMesh.instanceColor) {
+      sandMesh.instanceColor.needsUpdate = true
+    }
     snowMesh.instanceMatrix.needsUpdate = true
+    if (snowMesh.instanceColor) {
+      snowMesh.instanceColor.needsUpdate = true
+    }
     iceMesh.instanceMatrix.needsUpdate = true
     waterTopMesh.instanceMatrix.needsUpdate = true
     waterNorthMesh.instanceMatrix.needsUpdate = true
@@ -736,9 +878,89 @@ export class ChunkManager {
       }
     }
 
+    this.decorateChunkFoliage(data)
+
     const object = this.buildChunkMesh(data)
     this.root.add(object)
     this.chunks.set(key, { data, object })
+  }
+
+  private decorateChunkFoliage(data: ChunkData): void {
+    for (let z = 0; z < CHUNK_SIZE; z += 1) {
+      for (let x = 0; x < CHUNK_SIZE; x += 1) {
+        const worldX = data.chunkX * CHUNK_SIZE + x
+        const worldZ = data.chunkZ * CHUNK_SIZE + z
+        const biome = terrainBiomeAt(worldX, worldZ)
+        if (biome !== 'forest' && biome !== 'swamp') {
+          continue
+        }
+
+        const y = getHeightAt(worldX, worldZ)
+        if (y < 0 || y >= CHUNK_HEIGHT - 1) {
+          continue
+        }
+
+        const ground = data.get(x, y, z)
+        const above = data.get(x, y + 1, z)
+        if (above !== BlockId.Air) {
+          continue
+        }
+
+        if (biome === 'forest') {
+          if (ground !== BlockId.Dirt) {
+            continue
+          }
+
+          const patch = (Math.sin(worldX * 0.19) + Math.cos(worldZ * 0.17)) * 0.5
+          const chance = patch > 0.1 ? 0.95 : 0.82
+          if (hash2(worldX, worldZ, 461) <= chance) {
+            data.set(x, y + 1, z, BlockId.TallGrass)
+            if (hash2(worldX, worldZ, 469) <= 0.85) {
+              const dir = Math.floor(hash2(worldX, worldZ, 479) * 4)
+              const nx = dir === 0 ? x + 1 : dir === 1 ? x - 1 : x
+              const nz = dir === 2 ? z + 1 : dir === 3 ? z - 1 : z
+              if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
+                const nGround = data.get(nx, y, nz)
+                const nAbove = data.get(nx, y + 1, nz)
+                if (nGround === BlockId.Dirt && nAbove === BlockId.Air) {
+                  data.set(nx, y + 1, nz, BlockId.TallGrass)
+                }
+              }
+            }
+          }
+          continue
+        }
+
+        if (ground !== BlockId.SwampGrass && ground !== BlockId.Dirt) {
+          continue
+        }
+
+        const north = z > 0 ? data.get(x, y, z - 1) : this.getBlockAtWorld(worldX, y, worldZ - 1)
+        const south = z < CHUNK_SIZE - 1 ? data.get(x, y, z + 1) : this.getBlockAtWorld(worldX, y, worldZ + 1)
+        const west = x > 0 ? data.get(x - 1, y, z) : this.getBlockAtWorld(worldX - 1, y, worldZ)
+        const east = x < CHUNK_SIZE - 1 ? data.get(x + 1, y, z) : this.getBlockAtWorld(worldX + 1, y, worldZ)
+        const nearWater = north === BlockId.Water || south === BlockId.Water || west === BlockId.Water || east === BlockId.Water
+        const isLow = y <= 9
+        const chance = nearWater ? 0.95 : isLow ? 0.88 : 0.8
+
+        if (hash2(worldX, worldZ, 467) <= chance) {
+          data.set(x, y + 1, z, BlockId.Sedge)
+          if (hash2(worldX, worldZ, 487) <= 0.85) {
+            const dir = Math.floor(hash2(worldX, worldZ, 491) * 4)
+            const nx = dir === 0 ? x + 1 : dir === 1 ? x - 1 : x
+            const nz = dir === 2 ? z + 1 : dir === 3 ? z - 1 : z
+            if (nx >= 0 && nx < CHUNK_SIZE && nz >= 0 && nz < CHUNK_SIZE) {
+              const nGround = data.get(nx, y, nz)
+              const nAbove = data.get(nx, y + 1, nz)
+              if ((nGround === BlockId.SwampGrass || nGround === BlockId.Dirt) && nAbove === BlockId.Air) {
+                data.set(nx, y + 1, nz, BlockId.Sedge)
+              }
+            }
+          }
+        }
+      }
+    }
+
   }
 
   private setBlock(worldX: number, y: number, worldZ: number, block: BlockId): boolean {
@@ -915,8 +1137,35 @@ export class ChunkManager {
 
   private isSolidAtForMeshing(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): boolean {
     const block = this.getBlockAtForMeshing(worldX, y, worldZ, sourceChunk)
-    return block !== BlockId.Air && block !== BlockId.Water
+    return block !== BlockId.Air && block !== BlockId.Water && !isPassableFoliage(block)
   }
+
+  private sampleAmbientOcclusion(worldX: number, y: number, worldZ: number, sourceChunk: ChunkData): number {
+    let occlusion = 0
+
+    if (this.isSolidAtForMeshing(worldX, y - 1, worldZ, sourceChunk)) {
+      occlusion += 1.4
+    }
+    if (this.isSolidAtForMeshing(worldX + 1, y, worldZ, sourceChunk)) {
+      occlusion += 0.9
+    }
+    if (this.isSolidAtForMeshing(worldX - 1, y, worldZ, sourceChunk)) {
+      occlusion += 0.9
+    }
+    if (this.isSolidAtForMeshing(worldX, y, worldZ + 1, sourceChunk)) {
+      occlusion += 0.9
+    }
+    if (this.isSolidAtForMeshing(worldX, y, worldZ - 1, sourceChunk)) {
+      occlusion += 0.9
+    }
+    if (this.isSolidAtForMeshing(worldX, y + 1, worldZ, sourceChunk)) {
+      occlusion += 0.7
+    }
+
+    const light = 1 - occlusion * 0.1
+    return THREE.MathUtils.clamp(light, 0.72, 1)
+  }
+
 }
 
 function createChunkLayerMesh(
@@ -925,6 +1174,9 @@ function createChunkLayerMesh(
   materialOptions: {
     map?: THREE.Texture
     color?: number
+    useInstanceColor?: boolean
+    castShadow?: boolean
+    receiveShadow?: boolean
     transparent?: boolean
     opacity?: number
     alphaTest?: number
@@ -946,15 +1198,43 @@ function createChunkLayerMesh(
     })
   const mesh = new THREE.InstancedMesh(geometry, material, Math.max(instanceCount, 1))
   mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-  mesh.castShadow = false
-  mesh.receiveShadow = true
+  if (materialOptions.useInstanceColor) {
+    const colorArray = new Float32Array(Math.max(instanceCount, 1) * 3)
+    colorArray.fill(1)
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(colorArray, 3)
+  }
+  mesh.castShadow = materialOptions.castShadow ?? false
+  mesh.receiveShadow = materialOptions.receiveShadow ?? true
   return mesh
 }
 
-function materialFromTexture(texture: THREE.Texture): THREE.MeshLambertMaterial {
+function materialFromTexture(
+  texture: THREE.Texture,
+  options: {
+    transparent?: boolean
+    alphaTest?: number
+    depthWrite?: boolean
+    side?: THREE.Side
+  } = {},
+): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({
     map: texture,
+    transparent: options.transparent,
+    alphaTest: options.alphaTest,
+    depthWrite: options.depthWrite,
+    side: options.side,
   })
+}
+
+function isPassableFoliage(block: BlockId): boolean {
+  return block === BlockId.Shrub || block === BlockId.TallGrass || block === BlockId.Sedge
+}
+
+function hash2(worldX: number, worldZ: number, salt: number): number {
+  let value = worldX * 374761393 + worldZ * 668265263 + salt * 362437
+  value = (value ^ (value >>> 13)) * 1274126177
+  value ^= value >>> 16
+  return (value >>> 0) / 4294967295
 }
 
 function disposeObject(object: THREE.Object3D): void {

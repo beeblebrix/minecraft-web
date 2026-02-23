@@ -137,11 +137,11 @@ function placeSwampTree(blocks: Uint8Array, chunkX: number, chunkZ: number, x: n
         continue
       }
 
-      if (hash2(worldX + ox, worldZ + oz, 433) > 0.48) {
+      if (hash2(worldX + ox, worldZ + oz, 433) > 0.34) {
         continue
       }
 
-      const reachesGround = hash2(worldX + ox, worldZ + oz, 439) > 0.62
+      const reachesGround = hash2(worldX + ox, worldZ + oz, 439) > 0.9
       const terrainY = Math.min(CHUNK_HEIGHT - 1, getHeightAt(worldX + ox, worldZ + oz))
       const shortBottom = startY - (3 + Math.floor(hash2(worldX + ox, worldZ + oz, 443) * 5))
       const minBottom = terrainY + 1
@@ -149,6 +149,124 @@ function placeSwampTree(blocks: Uint8Array, chunkX: number, chunkZ: number, x: n
 
       for (let y = startY - 1; y >= targetBottom; y -= 1) {
         setIfAir(blocks, tx, y, tz, BlockId.SwampLeaves)
+      }
+    }
+  }
+}
+
+function addSwampShrubs(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
+  for (let z = 1; z < CHUNK_SIZE - 1; z += 1) {
+    for (let x = 1; x < CHUNK_SIZE - 1; x += 1) {
+      const worldX = chunkX * CHUNK_SIZE + x
+      const worldZ = chunkZ * CHUNK_SIZE + z
+      if (getBiomeAt(worldX, worldZ) !== BiomeId.Swamp) {
+        continue
+      }
+
+      if (hash2(worldX, worldZ, 349) > 0.06) {
+        continue
+      }
+
+      const groundY = Math.min(CHUNK_HEIGHT - 2, getHeightAt(worldX, worldZ))
+      if (groundY <= SEA_LEVEL) {
+        continue
+      }
+
+      const ground = getLocalBlock(blocks, x, groundY, z)
+      if (ground !== BlockId.SwampGrass && ground !== BlockId.Dirt) {
+        continue
+      }
+
+      if (getLocalBlock(blocks, x, groundY + 1, z) !== BlockId.Air) {
+        continue
+      }
+
+      setIfAir(blocks, x, groundY + 1, z, BlockId.Shrub)
+
+      if (hash2(worldX, worldZ, 353) > 0.3) {
+        setIfAir(blocks, x + 1, groundY + 1, z, BlockId.Shrub)
+      }
+      if (hash2(worldX, worldZ, 359) > 0.3) {
+        setIfAir(blocks, x - 1, groundY + 1, z, BlockId.Shrub)
+      }
+      if (hash2(worldX, worldZ, 367) > 0.3) {
+        setIfAir(blocks, x, groundY + 1, z + 1, BlockId.Shrub)
+      }
+      if (hash2(worldX, worldZ, 373) > 0.3) {
+        setIfAir(blocks, x, groundY + 1, z - 1, BlockId.Shrub)
+      }
+
+      if (hash2(worldX, worldZ, 379) > 0.72) {
+        setIfAir(blocks, x, groundY + 2, z, BlockId.Shrub)
+      }
+    }
+  }
+}
+
+function addBiomeGrass(blocks: Uint8Array, chunkX: number, chunkZ: number): void {
+  for (let z = 0; z < CHUNK_SIZE; z += 1) {
+    for (let x = 0; x < CHUNK_SIZE; x += 1) {
+      const worldX = chunkX * CHUNK_SIZE + x
+      const worldZ = chunkZ * CHUNK_SIZE + z
+      const biome = getBiomeAt(worldX, worldZ)
+      if (biome !== BiomeId.Forest && biome !== BiomeId.Swamp) {
+        continue
+      }
+
+      const groundY = Math.min(CHUNK_HEIGHT - 2, getHeightAt(worldX, worldZ))
+      if (groundY < 1 || groundY >= CHUNK_HEIGHT - 2) {
+        continue
+      }
+
+      const ground = getLocalBlock(blocks, x, groundY, z)
+      if (biome === BiomeId.Forest && ground !== BlockId.Dirt) {
+        continue
+      }
+
+      if (biome === BiomeId.Swamp && ground !== BlockId.SwampGrass && ground !== BlockId.Dirt) {
+        continue
+      }
+
+      if (getLocalBlock(blocks, x, groundY + 1, z) !== BlockId.Air) {
+        continue
+      }
+
+      if (biome === BiomeId.Forest) {
+        const patch = (Math.sin(worldX * 0.19) + Math.cos(worldZ * 0.17)) * 0.5
+        const chance = patch > 0.1 ? 0.95 : 0.82
+        if (hash2(worldX, worldZ, 461) <= chance) {
+          setIfAir(blocks, x, groundY + 1, z, BlockId.TallGrass)
+          if (hash2(worldX, worldZ, 469) <= 0.85) {
+            const dir = Math.floor(hash2(worldX, worldZ, 479) * 4)
+            const nx = dir === 0 ? x + 1 : dir === 1 ? x - 1 : x
+            const nz = dir === 2 ? z + 1 : dir === 3 ? z - 1 : z
+            if (getLocalBlock(blocks, nx, groundY, nz) === BlockId.Dirt) {
+              setIfAir(blocks, nx, groundY + 1, nz, BlockId.TallGrass)
+            }
+          }
+        }
+        continue
+      }
+
+      const north = getLocalBlock(blocks, x, groundY, z - 1)
+      const south = getLocalBlock(blocks, x, groundY, z + 1)
+      const west = getLocalBlock(blocks, x - 1, groundY, z)
+      const east = getLocalBlock(blocks, x + 1, groundY, z)
+      const nearWater = north === BlockId.Water || south === BlockId.Water || west === BlockId.Water || east === BlockId.Water
+      const isLow = groundY <= SEA_LEVEL + 2
+
+      const chance = nearWater ? 0.95 : isLow ? 0.88 : 0.8
+      if (hash2(worldX, worldZ, 467) <= chance) {
+        setIfAir(blocks, x, groundY + 1, z, BlockId.Sedge)
+        if (hash2(worldX, worldZ, 487) <= 0.85) {
+          const dir = Math.floor(hash2(worldX, worldZ, 491) * 4)
+          const nx = dir === 0 ? x + 1 : dir === 1 ? x - 1 : x
+          const nz = dir === 2 ? z + 1 : dir === 3 ? z - 1 : z
+          const nGround = getLocalBlock(blocks, nx, groundY, nz)
+          if (nGround === BlockId.SwampGrass || nGround === BlockId.Dirt) {
+            setIfAir(blocks, nx, groundY + 1, nz, BlockId.Sedge)
+          }
+        }
       }
     }
   }
@@ -293,7 +411,7 @@ function addSwampReeds(blocks: Uint8Array, chunkX: number, chunkZ: number): void
 
       const height = 1 + Math.floor(hash2(worldX, worldZ, 313) * 3)
       for (let y = 1; y <= height; y += 1) {
-        setIfAir(blocks, x, groundY + y, z, BlockId.SwampReed)
+        setIfAir(blocks, x, groundY + y, z, BlockId.SwampLog)
       }
     }
   }
@@ -335,7 +453,9 @@ function generateChunkBlocks(chunkX: number, chunkZ: number): Uint8Array {
 
   addTrees(blocks, chunkX, chunkZ)
   addCacti(blocks, chunkX, chunkZ)
+  addSwampShrubs(blocks, chunkX, chunkZ)
   addSwampReeds(blocks, chunkX, chunkZ)
+  addBiomeGrass(blocks, chunkX, chunkZ)
 
   return blocks
 }
